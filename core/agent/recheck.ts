@@ -155,7 +155,7 @@ Output **JSON only** (no code fences):
 }
 
 ${outputLangClause(resolveLang(opts.lang))}
-⚠️ Strictly valid JSON: **never use an unescaped ASCII double quote \`"\`** inside text/problem and similar fields; always quote with 「」 or backticks \`, never ASCII double quotes.`
+Quote code the way you would in prose — both providers validate the result against a schema, so escaping is not your problem.`
 }
 
 // A re-review reads more than a first pass does (history file, PR conversation, incremental diff), and the old ceiling
