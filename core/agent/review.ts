@@ -45,7 +45,7 @@ const outputSpec = (lang: string) => `When you are done, output **only a single 
   "testPath": "shortest manual test path from the user's point of view + regression points"
 }
 Sort findings by severity, High→Medium→Low. ${outputLangClause(lang)}
-Break requirement / testPath onto real line breaks, one step/point per line, each section (${REVIEW_SECTIONS.join(', ')}) starting on its own line — do not cram everything into one run-on block. Press Enter for those breaks; never type the two characters backslash-n, which reach the reader as literal text.`
+Break requirement / testPath onto real line breaks, one step/point per line, each section (${REVIEW_SECTIONS.join(', ')}) starting on its own line — do not cram everything into one run-on block. Press Enter for those breaks.`
 
 export function buildReviewPrompt(opts: { repo: string; prNumber: number; branch: string; defaultBranch: string; lang: string; instruction?: string | null }) {
   const { repo, prNumber, branch, defaultBranch } = opts

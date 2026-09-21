@@ -23,6 +23,9 @@ export function buildOptions(spec: RunSpec, hooks: { canUseTool: CanUseTool; dan
     systemPrompt: spec.systemAppend ? { type: 'preset', preset: 'claude_code', append: spec.systemAppend } : { type: 'preset', preset: 'claude_code' },
     ...(spec.resume ? { resume: spec.resume, ...(spec.fork ? { forkSession: true } : {}) } : {}),
     includePartialMessages: true, // text deltas for live streaming
+    // Current models return thinking blocks with no text unless the session asks for summaries, which left the
+    // chat's thinking cards permanently empty (and therefore never rendered).
+    thinking: { type: 'adaptive', display: 'summarized' },
     canUseTool: hooks.canUseTool,
     hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [hooks.dangerHook] }] },
     toolConfig: { askUserQuestion: { previewFormat: 'html' } },

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { query, type PermissionMode, type Query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import { query, type EffortLevel, type PermissionMode, type Query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { eq } from 'drizzle-orm'
 import { PushQueue } from './queue'
 import { normalize, diffCumulativeUsage } from './normalize'
@@ -51,6 +51,12 @@ type LiveRun = {
   emit: (e: RunEvent) => void
   stderr: string
   consumer: Promise<void>
+}
+
+// Only the levels the flag-settings layer accepts; anything else (a Codex level such as `ultra`, a typo) is not sent.
+const EFFORT_LEVELS = new Set<EffortLevel>(['low', 'medium', 'high', 'xhigh', 'max'])
+function toEffortLevel(effort?: string | null): EffortLevel | undefined {
+  return EFFORT_LEVELS.has(effort as EffortLevel) ? (effort as EffortLevel) : undefined
 }
 
 class ClaudeHost {
@@ -328,13 +334,24 @@ class ClaudeHost {
     return { canRewind: !!r?.canRewind, error: r?.error, filesChanged: r?.filesChanged, insertions: r?.insertions, deletions: r?.deletions }
   }
 
-  // Model switches on the live query; effort is fixed for the life of a query, so a change is remembered on the spec
-  // and applied by the next ensure() (which restarts the query on the same native session).
+  // Model and effort both switch on the live query. Effort is baked in when the query is created, so it goes through
+  // the flag-settings layer (streaming input mode, which is the mode this host runs in) and is only then recorded on
+  // the spec: ensure() restarts the query whenever the recorded effort differs, which is the fallback when the live
+  // update does not land. Recording it first would make that comparison always agree and freeze the old effort for
+  // the rest of the session.
   async setModel(runId: string, model?: string | null, effort?: string | null): Promise<boolean> {
     const live = this.runs.get(runId)
     if (!live || live.closed) return false
     if (model !== undefined) { live.spec.model = model ?? undefined; await live.q.setModel(model ?? undefined); if (live.init && model) live.init = { ...live.init, model } }
-    if (effort !== undefined) live.spec.effort = effort ?? undefined
+    if (effort !== undefined) {
+      const level = toEffortLevel(effort)
+      // An unknown level is left untouched on purpose: the spec keeps the old value, so the next ensure() restarts the
+      // query and the CLI itself decides what to make of what the caller stored on the run.
+      if (level || !effort) {
+        const applied = await live.q.applyFlagSettings({ effortLevel: level ?? null }).then(() => true).catch(() => false)
+        if (applied) live.spec.effort = effort ?? undefined
+      }
+    }
     return true
   }
 

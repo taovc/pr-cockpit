@@ -13,8 +13,11 @@ import { resolveLang } from './lang'
 import type { ReviewRunner } from './runners'
 import type { ProviderUsage } from '../runs/types'
 
-// ── Structured-output JSON Schemas (aligned with their zod schemas, forcing Codex to emit parseable JSON) ──
-const REVIEW_RESULT_JSON_SCHEMA = {
+// ── Structured-output JSON Schemas (hand-written: strict structured output needs every property in `required`
+// and `additionalProperties: false`, which the zod-derived schema the Claude side uses does not produce).
+// They are exported so tests/codex-recheck-json.test.ts can check them against the zod schemas they mirror —
+// the last drift here cost Codex the ability to send a corrected finding at all. ──
+export const REVIEW_RESULT_JSON_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
@@ -45,7 +48,7 @@ const REVIEW_RESULT_JSON_SCHEMA = {
   required: ['findings', 'logic', 'quality', 'risk', 'conclusion', 'requirement', 'testPath'],
 } as const
 
-const RECHECK_RESULT_JSON_SCHEMA = {
+export const RECHECK_RESULT_JSON_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
@@ -59,12 +62,22 @@ const RECHECK_RESULT_JSON_SCHEMA = {
           status: { type: 'string', enum: ['fixed', 'partial', 'unaddressed', 'replied', 'new'] },
           stance: { type: 'string', enum: ['kept', 'retracted', 'adjusted', 'discuss'] },
           stanceReason: { type: 'string' },
+          // The corrected wording that comes with stance 'adjusted'. Without these the stance could be sent but the
+          // rewrite could not, so the list kept showing — and posting — the wording the round had just disowned.
+          // Nullable rather than absent: strict structured output has no optional properties, and an empty string is
+          // not a severity. Nulls are dropped before the result is validated.
+          severity: { type: ['string', 'null'], enum: ['High', 'Medium', 'Low', null] },
+          title: { type: ['string', 'null'] },
+          location: { type: ['string', 'null'] },
+          problem: { type: ['string', 'null'] },
+          detail: { type: ['string', 'null'] },
+          fix: { type: ['string', 'null'] },
           text: { type: 'string' },
         },
         // Every hand-written schema here lists all properties in `required` (strict structured output rejects a
         // schema that does not). The Claude side makes stanceReason optional because a required-and-usually-empty
         // field destabilised its output; Codex keeps it required, with the prompt telling it to send an empty string.
-        required: ['fid', 'status', 'stance', 'stanceReason', 'text'],
+        required: ['fid', 'status', 'stance', 'stanceReason', 'severity', 'title', 'location', 'problem', 'detail', 'fix', 'text'],
       },
     },
     newFindings: {
@@ -127,8 +140,19 @@ export function parseCodexReviewJson(raw: string): ReviewResult {
   return result.data
 }
 
+// Strict structured output expresses "no value" as null; the result schema expresses it as an absent key.
+function dropNulls<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((v) => dropNulls(v)) as unknown as T
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) if (v !== null) out[k] = dropNulls(v)
+    return out as unknown as T
+  }
+  return value
+}
+
 export function parseCodexRecheckJson(raw: string): RecheckResult {
-  const parsed = unescapeNewlines(parseJsonOrThrow(raw, 'recheck'))
+  const parsed = dropNulls(unescapeNewlines(parseJsonOrThrow(raw, 'recheck')))
   const result = RecheckSchema.safeParse(parsed)
   if (!result.success) {
     const issues = result.error.issues.map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`).join('; ')
@@ -174,7 +198,7 @@ export async function runCodexRecheckAgent(opts: RecheckAgentOptions): Promise<{
   try {
     const { raw, usage } = await runCodexReadonly({
     onStop: (stop) => { if (opts.abort?.signal.aborted) stop(); else opts.abort?.signal.addEventListener('abort', stop, { once: true }) },
-      prompt: `${withContract(opts.methodology, RECHECK_PROCEDURE)}\n\n---\n\n${buildRecheckPrompt(opts)}\n\n(This structured output requires "stanceReason" on every recheck item: send the reason when the stance changed, and an empty string "" when it did not.)`,
+      prompt: `${withContract(opts.methodology, RECHECK_PROCEDURE)}\n\n---\n\n${buildRecheckPrompt(opts)}\n\n(This structured output carries every field on every recheck item: send "stanceReason" when the stance changed and an empty string "" when it did not, and send the corrected "severity"/"title"/"location"/"problem"/"detail"/"fix" with stance "adjusted", null on every other item.)`,
       cwd: opts.cwd,
       model: opts.model,
       effort: opts.effort,
