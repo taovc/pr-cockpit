@@ -196,6 +196,37 @@ const DETAIL_FIELDS = [
   'additions', 'deletions', 'changedFiles', 'url', 'files', 'commits',
 ].join(',')
 
+// GitHub keeps at most one PENDING review per person per PR, and a leftover one makes the next submission fail with
+// 422. Any PENDING in the response is necessarily ours (other people's pending reviews are not returned), so posting a
+// review clears it first. Best effort: a failure here is not fatal, the submission that follows reports what matters.
+// Only the review-posting path (core/github/post.ts) may call this. A review a person is still writing on github.com is
+// PENDING too and indistinguishable from ours, so approvePr reports the clash instead — silently deleting someone's
+// unsubmitted line comments is not a self-heal.
+export async function clearOwnPendingReview(repo: string, prNumber: number): Promise<void> {
+  try {
+    const out = await gh(['api', `repos/${repo}/pulls/${prNumber}/reviews`, '--paginate', '--slurp'], 30_000)
+    for (const r of (JSON.parse(out) as any[][]).flat()) {
+      if (r?.state === 'PENDING') await gh(['api', `repos/${repo}/pulls/${prNumber}/reviews/${r.id}`, '--method', 'DELETE'], 30_000).catch(() => {})
+    }
+  } catch {
+    /* see above */
+  }
+}
+
+// GitHub's wording when a pending review of yours blocks a new submission; the caller turns it into a sentence.
+export function isPendingReviewClash(detail: string): boolean {
+  return /one pending review per pull request/i.test(detail)
+}
+
+// Approve a PR as the logged-in gh user. No body: the drawer's button is an approval, not a comment — the review
+// comment has its own path (core/github/post.ts). GitHub approves whatever is at the head when this lands, which is
+// what clicking Approve on github.com does too.
+export async function approvePr(repo: string, prNumber: number): Promise<{ url: string }> {
+  const out = await gh(['api', `repos/${repo}/pulls/${prNumber}/reviews`, '--method', 'POST', '-f', 'event=APPROVE'], 60_000)
+  const res = JSON.parse(out)
+  return { url: res?.html_url || res?._links?.html?.href || '' }
+}
+
 export async function fetchPrDetail(repo: string, prNumber: number): Promise<PrDetail> {
   const out = await gh(['pr', 'view', String(prNumber), '--repo', repo, '--json', DETAIL_FIELDS])
   const j = JSON.parse(out)

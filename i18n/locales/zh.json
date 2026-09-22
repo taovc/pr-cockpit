@@ -188,6 +188,17 @@
     "diffLoadFailed": "diff 加载失败",
     "title": "PR 详情",
     "openInGithub": "在 GitHub 打开 ↗",
+    "approve": {
+      "button": "批准 PR",
+      "title": "在 GitHub 上以你的身份批准这个 PR",
+      "confirm": "确认批准？",
+      "yes": "批准",
+      "running": "批准中…",
+      "failed": "批准失败",
+      "own_pr": "GitHub 不允许批准自己提交的 PR",
+      "not_open": "PR 已经不是 open 状态，刷新后再看",
+      "pending_review": "你在 GitHub 上有一份未提交的 review，先提交或丢弃它再批准"
+    },
     "tabReview": "AI 审核",
     "tabTimeline": "时间线",
     "tabChanges": "改动",

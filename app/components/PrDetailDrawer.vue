@@ -111,29 +111,81 @@ function wfLabel(ev: WfEvent) {
   return t(k, { round: ev.message ?? '', info: ev.message ?? '' })
 }
 
+// ── Approve the PR on GitHub (header button) ──
+// Everyone on the repo sees this, so it goes through the drawer's inline confirmation (a modal on top of a
+// slideover is not interactive here). Only offered while the PR is open; the two refusals the server names
+// — your own PR, a PR that is no longer open — are translated, anything else shows what gh reported.
+const { confirming } = useInlineConfirm()
+const approving = ref(false)
+const approveError = ref('')
+
+// The PR header + timeline in one call; also re-read after an approval so the badge and the timeline show it.
+// Two loads can be in flight at once (switching PRs while an approval is finishing), so the late one must not win:
+// same load-token + id re-check the other drawers in this repo use.
+let loadToken = 0
+async function loadDetail(num: number) {
+  const my = ++loadToken
+  pending.value = true
+  try {
+    const res = await $fetch<{ detail: Detail; nodes: Node[] }>(
+      `/api/projects/${props.projectId}/pulls/${num}/timeline`,
+    )
+    if (my !== loadToken || num !== props.prNumber) return // stale
+    // Rendered by MarkdownBody where they are shown (one shared pipeline, see useMarkdown) rather than
+    // pre-rendered into the node list here.
+    detail.value = res.detail
+    nodes.value = res.nodes
+  } catch (e: any) {
+    if (my !== loadToken || num !== props.prNumber) return
+    error.value = e?.data?.statusMessage || e?.message || t('prDrawer.loadFailed')
+  } finally {
+    if (my === loadToken) pending.value = false
+  }
+}
+
 watch(
   () => [open.value, props.prNumber] as const,
   async ([isOpen, num]) => {
     if (!isOpen || !num) return
+    approveError.value = ''; confirming.value = '' // before the same-PR early return: a failed approval must not greet the next open
     if (detail.value?.number === num) return
     detail.value = null; nodes.value = []; diff.value = null; wfEvents.value = []
-    activeTab.value = (props.initialTab as any) || (props.reviewId ? 'review' : 'timeline'); error.value = ''; pending.value = true
-    try {
-      const res = await $fetch<{ detail: Detail; nodes: Node[] }>(
-        `/api/projects/${props.projectId}/pulls/${num}/timeline`,
-      )
-      // Rendered by MarkdownBody where they are shown (one shared pipeline, see useMarkdown) rather than
-      // pre-rendered into the node list here.
-      detail.value = res.detail
-      nodes.value = res.nodes
-    } catch (e: any) {
-      error.value = e?.data?.statusMessage || e?.message || t('prDrawer.loadFailed')
-    } finally {
-      pending.value = false
-    }
+    activeTab.value = (props.initialTab as any) || (props.reviewId ? 'review' : 'timeline'); error.value = ''
+    await loadDetail(num)
   },
   { immediate: true },
 )
+
+// ── Approve the PR on GitHub (header button) ──
+// Drafts are approvable on GitHub, merged/closed ones are not, and your own PR never is — so it is not offered.
+const me = ref('')
+watch(open, (isOpen) => { if (isOpen && !me.value) $fetch<{ login: string }>('/api/me').then((r) => { me.value = r.login || '' }).catch(() => {}) }, { immediate: true })
+const canApprove = computed(() => {
+  const d = detail.value
+  if (!d || (d.state !== 'open' && d.state !== 'draft')) return false
+  return !me.value || me.value.toLowerCase() !== (d.author || '').toLowerCase()
+})
+async function approve() {
+  const num = props.prNumber
+  if (!num || approving.value) return
+  approving.value = true
+  approveError.value = ''
+  try {
+    await $fetch(`/api/projects/${props.projectId}/pulls/${num}/approve`, { method: 'POST' })
+    confirming.value = ''
+    await loadDetail(num) // the APPROVED badge and the new timeline entry come from the server, not from a local guess
+    emit('taskCreated') // the list shows the review decision too
+  } catch (e: any) {
+    const reason = e?.data?.data?.reason
+    const key = `prDrawer.approve.${reason}`
+    const raw = e?.data?.data?.detail
+    approveError.value = reason && te(key)
+      ? t(key)
+      : raw ? `${t('prDrawer.approve.failed')}: ${raw}` : (e?.data?.statusMessage || t('prDrawer.approve.failed'))
+  } finally {
+    approving.value = false
+  }
+}
 
 // Only fetch the diff once the changes tab is opened
 watch(activeTab, async (nextTab) => {
@@ -225,7 +277,15 @@ const lineCls: Record<DiffLine['t'], string> = {
                 <span class="text-error"> −{{ detail.deletions }}</span>
               </div>
             </div>
-            <div class="flex items-center gap-3 shrink-0">
+            <div class="flex items-center justify-end flex-wrap gap-x-3 gap-y-1 shrink-0 max-w-[60%] md:max-w-none">
+              <template v-if="canApprove">
+                <template v-if="confirming === 'approve'">
+                  <span class="text-xs text-dimmed whitespace-nowrap">{{ $t('prDrawer.approve.confirm') }}</span>
+                  <button class="text-xs bg-inverted text-inverted px-3 py-1 rounded hover:bg-inverted/90 disabled:opacity-40 whitespace-nowrap" :disabled="approving" @click="approve">{{ approving ? $t('prDrawer.approve.running') : $t('prDrawer.approve.yes') }}</button>
+                  <button class="text-xs text-dimmed hover:text-highlighted whitespace-nowrap" :disabled="approving" @click="confirming = ''">{{ $t('common.cancel') }}</button>
+                </template>
+                <button v-else class="text-xs border border-default rounded px-3 py-1 text-muted hover:text-highlighted hover:border-inverted whitespace-nowrap" :title="$t('prDrawer.approve.title')" @click="confirming = 'approve'">{{ $t('prDrawer.approve.button') }}</button>
+              </template>
               <a :href="detail.url" target="_blank" class="text-xs text-muted hover:text-highlighted whitespace-nowrap">{{ $t('prDrawer.openInGithub') }}</a>
               <button class="text-dimmed hover:text-highlighted text-lg leading-none" @click="open = false">✕</button>
             </div>
@@ -234,6 +294,7 @@ const lineCls: Record<DiffLine['t'], string> = {
             <span class="text-sm text-dimmed">{{ pending ? $t('common.loading') : error || $t('prDrawer.title') }}</span>
             <button class="text-dimmed hover:text-highlighted text-lg leading-none" @click="open = false">✕</button>
           </div>
+          <p v-if="approveError" class="text-xs text-error mt-2 whitespace-pre-wrap">{{ approveError }}</p>
 
           <!-- Per-instance automation switches: auto review / auto fix (override the project config; flipping one resets this PR's round count) -->
           <div v-if="detail" class="flex items-center flex-wrap gap-x-5 gap-y-1 mt-3 text-xs">

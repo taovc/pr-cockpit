@@ -188,6 +188,17 @@
     "diffLoadFailed": "Échec du chargement du diff",
     "title": "Détail de la PR",
     "openInGithub": "Ouvrir sur GitHub ↗",
+    "approve": {
+      "button": "Approuver la PR",
+      "title": "Approuver cette PR sur GitHub en votre nom",
+      "confirm": "Approuver ?",
+      "yes": "Approuver",
+      "running": "Approbation…",
+      "failed": "Échec de l'approbation",
+      "own_pr": "GitHub n'autorise pas l'approbation de votre propre pull request",
+      "not_open": "Cette PR n'est plus ouverte — rouvrez le panneau pour actualiser",
+      "pending_review": "Vous avez une review non soumise sur GitHub — soumettez-la ou supprimez-la d'abord"
+    },
     "tabReview": "Revue IA",
     "tabTimeline": "Chronologie",
     "tabChanges": "Modifications",

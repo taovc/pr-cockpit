@@ -188,6 +188,17 @@
     "diffLoadFailed": "Diff load failed",
     "title": "PR details",
     "openInGithub": "Open in GitHub ↗",
+    "approve": {
+      "button": "Approve PR",
+      "title": "Approve this PR on GitHub as you",
+      "confirm": "Approve?",
+      "yes": "Approve",
+      "running": "Approving…",
+      "failed": "Approval failed",
+      "own_pr": "GitHub does not let you approve your own pull request",
+      "not_open": "This PR is no longer open — reopen the drawer to refresh",
+      "pending_review": "You have an unsubmitted review on GitHub — submit or discard it first"
+    },
     "tabReview": "AI review",
     "tabTimeline": "Timeline",
     "tabChanges": "Changes",
