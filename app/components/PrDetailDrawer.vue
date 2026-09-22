@@ -63,8 +63,10 @@ type Node = {
   body?: string; state?: string; sha?: string; message?: string; verb?: string; detail?: string
 }
 
+type MyReview = { id: number; state: string } | null // the caller's own standing verdict on this PR, from the server
 const detail = ref<Detail | null>(null)
 const nodes = ref<Node[]>([])
+const myReview = ref<MyReview>(null)
 const pending = ref(false)
 const error = ref('')
 
@@ -118,6 +120,7 @@ function wfLabel(ev: WfEvent) {
 const { confirming } = useInlineConfirm()
 const approving = ref(false)
 const approveError = ref('')
+const dismissReason = ref('')
 
 // The PR header + timeline in one call; also re-read after an approval so the badge and the timeline show it.
 // Two loads can be in flight at once (switching PRs while an approval is finishing), so the late one must not win:
@@ -127,7 +130,7 @@ async function loadDetail(num: number) {
   const my = ++loadToken
   pending.value = true
   try {
-    const res = await $fetch<{ detail: Detail; nodes: Node[] }>(
+    const res = await $fetch<{ detail: Detail; nodes: Node[]; myReview: MyReview }>(
       `/api/projects/${props.projectId}/pulls/${num}/timeline`,
     )
     if (my !== loadToken || num !== props.prNumber) return // stale
@@ -135,6 +138,7 @@ async function loadDetail(num: number) {
     // pre-rendered into the node list here.
     detail.value = res.detail
     nodes.value = res.nodes
+    myReview.value = res.myReview ?? null
   } catch (e: any) {
     if (my !== loadToken || num !== props.prNumber) return
     error.value = e?.data?.statusMessage || e?.message || t('prDrawer.loadFailed')
@@ -147,24 +151,28 @@ watch(
   () => [open.value, props.prNumber] as const,
   async ([isOpen, num]) => {
     if (!isOpen || !num) return
-    approveError.value = ''; confirming.value = '' // before the same-PR early return: a failed approval must not greet the next open
+    approveError.value = ''; confirming.value = ''; dismissReason.value = '' // before the same-PR early return: a failed approval must not greet the next open
     if (detail.value?.number === num) return
-    detail.value = null; nodes.value = []; diff.value = null; wfEvents.value = []
+    detail.value = null; nodes.value = []; myReview.value = null; diff.value = null; wfEvents.value = []
     activeTab.value = (props.initialTab as any) || (props.reviewId ? 'review' : 'timeline'); error.value = ''
     await loadDetail(num)
   },
   { immediate: true },
 )
 
-// ── Approve the PR on GitHub (header button) ──
+// ── Approve / withdraw on GitHub (header button) ──
+// One button, two states: it offers to withdraw once your own approval is standing, and to approve otherwise.
 // Drafts are approvable on GitHub, merged/closed ones are not, and your own PR never is — so it is not offered.
 const me = ref('')
 watch(open, (isOpen) => { if (isOpen && !me.value) $fetch<{ login: string }>('/api/me').then((r) => { me.value = r.login || '' }).catch(() => {}) }, { immediate: true })
-const canApprove = computed(() => {
-  const d = detail.value
-  if (!d || (d.state !== 'open' && d.state !== 'draft')) return false
-  return !me.value || me.value.toLowerCase() !== (d.author || '').toLowerCase()
-})
+// Both actions need a PR GitHub will still act on: it accepts neither an approval nor a dismissal once the PR is
+// merged or closed (the dismissal it even accepts silently, changing nothing).
+const isLive = computed(() => detail.value?.state === 'open' || detail.value?.state === 'draft')
+const notMine = computed(() => !me.value || me.value.toLowerCase() !== (detail.value?.author || '').toLowerCase())
+// A dismissed or changes-requested review of ours is not a standing approval; only APPROVED can be withdrawn.
+const approvedByMe = computed(() => myReview.value?.state === 'APPROVED')
+const canApprove = computed(() => isLive.value && notMine.value && !approvedByMe.value)
+const canDismiss = computed(() => isLive.value && approvedByMe.value)
 async function approve() {
   const num = props.prNumber
   if (!num || approving.value) return
@@ -182,6 +190,31 @@ async function approve() {
     approveError.value = reason && te(key)
       ? t(key)
       : raw ? `${t('prDrawer.approve.failed')}: ${raw}` : (e?.data?.statusMessage || t('prDrawer.approve.failed'))
+  } finally {
+    approving.value = false
+  }
+}
+
+// GitHub cannot delete a submitted review, so taking an approval back means dismissing it, with a reason everyone on
+// the PR will read. The box is optional; empty falls back to the server's default sentence.
+async function dismiss() {
+  const num = props.prNumber
+  if (!num || approving.value) return
+  approving.value = true
+  approveError.value = ''
+  try {
+    await $fetch(`/api/projects/${props.projectId}/pulls/${num}/dismiss`, { method: 'POST', body: { message: dismissReason.value.trim() || undefined } })
+    confirming.value = ''
+    dismissReason.value = ''
+    await loadDetail(num) // the button flips back to "approve" off the reloaded review state, not a local guess
+    emit('taskCreated')
+  } catch (e: any) {
+    const reason = e?.data?.data?.reason
+    const key = `prDrawer.dismiss.${reason}`
+    const raw = e?.data?.data?.detail
+    approveError.value = reason && te(key)
+      ? t(key)
+      : raw ? `${t('prDrawer.dismiss.failed')}: ${raw}` : (e?.data?.statusMessage || t('prDrawer.dismiss.failed'))
   } finally {
     approving.value = false
   }
@@ -278,14 +311,20 @@ const lineCls: Record<DiffLine['t'], string> = {
               </div>
             </div>
             <div class="flex items-center justify-end flex-wrap gap-x-3 gap-y-1 shrink-0 max-w-[60%] md:max-w-none">
-              <template v-if="canApprove">
-                <template v-if="confirming === 'approve'">
-                  <span class="text-xs text-dimmed whitespace-nowrap">{{ $t('prDrawer.approve.confirm') }}</span>
-                  <button class="text-xs bg-inverted text-inverted px-3 py-1 rounded hover:bg-inverted/90 disabled:opacity-40 whitespace-nowrap" :disabled="approving" @click="approve">{{ approving ? $t('prDrawer.approve.running') : $t('prDrawer.approve.yes') }}</button>
-                  <button class="text-xs text-dimmed hover:text-highlighted whitespace-nowrap" :disabled="approving" @click="confirming = ''">{{ $t('common.cancel') }}</button>
-                </template>
-                <button v-else class="text-xs border border-default rounded px-3 py-1 text-muted hover:text-highlighted hover:border-inverted whitespace-nowrap" :title="$t('prDrawer.approve.title')" @click="confirming = 'approve'">{{ $t('prDrawer.approve.button') }}</button>
+              <!-- One button, two states: approve while nothing of ours stands, withdraw once it does -->
+              <template v-if="confirming === 'approve'">
+                <span class="text-xs text-dimmed whitespace-nowrap">{{ $t('prDrawer.approve.confirm') }}</span>
+                <button class="text-xs bg-inverted text-inverted px-3 py-1 rounded hover:bg-inverted/90 disabled:opacity-40 whitespace-nowrap" :disabled="approving" @click="approve">{{ approving ? $t('prDrawer.approve.running') : $t('prDrawer.approve.yes') }}</button>
+                <button class="text-xs text-dimmed hover:text-highlighted whitespace-nowrap" :disabled="approving" @click="confirming = ''">{{ $t('common.cancel') }}</button>
               </template>
+              <template v-else-if="confirming === 'dismiss'">
+                <!-- GitHub requires a reason and shows it on the PR timeline; empty falls back to the default sentence -->
+                <input v-model="dismissReason" :placeholder="$t('prDrawer.dismiss.reasonPlaceholder')" :disabled="approving" class="text-xs bg-transparent border-b border-default focus:border-inverted outline-none py-0.5 w-40 md:w-56" @keydown.enter="dismiss" />
+                <button class="text-xs border border-error/50 text-error rounded px-3 py-1 hover:bg-error/10 disabled:opacity-40 whitespace-nowrap" :disabled="approving" @click="dismiss">{{ approving ? $t('prDrawer.dismiss.running') : $t('prDrawer.dismiss.yes') }}</button>
+                <button class="text-xs text-dimmed hover:text-highlighted whitespace-nowrap" :disabled="approving" @click="confirming = ''">{{ $t('common.cancel') }}</button>
+              </template>
+              <button v-else-if="canDismiss" class="text-xs border border-default rounded px-3 py-1 text-muted hover:text-error hover:border-error/50 whitespace-nowrap" :title="$t('prDrawer.dismiss.title')" @click="confirming = 'dismiss'">{{ $t('prDrawer.dismiss.button') }}</button>
+              <button v-else-if="canApprove" class="text-xs border border-default rounded px-3 py-1 text-muted hover:text-highlighted hover:border-inverted whitespace-nowrap" :title="$t('prDrawer.approve.title')" @click="confirming = 'approve'">{{ $t('prDrawer.approve.button') }}</button>
               <a :href="detail.url" target="_blank" class="text-xs text-muted hover:text-highlighted whitespace-nowrap">{{ $t('prDrawer.openInGithub') }}</a>
               <button class="text-dimmed hover:text-highlighted text-lg leading-none" @click="open = false">✕</button>
             </div>

@@ -218,6 +218,35 @@ export function isPendingReviewClash(detail: string): boolean {
   return /one pending review per pull request/i.test(detail)
 }
 
+// The logged-in user's own standing verdict on this PR, or null when they have none. COMMENTED reviews are skipped:
+// they carry no verdict, so a comment after an approval does not retract it. A dismissed review comes back with state
+// DISMISSED, which is exactly what "no longer approved" looks like here.
+export type MyReview = { id: number; state: string }
+export async function fetchMyReview(repo: string, prNumber: number, me: string): Promise<MyReview | null> {
+  if (!me) return null
+  const out = await gh(['api', `repos/${repo}/pulls/${prNumber}/reviews`, '--paginate', '--slurp'], 30_000)
+  const mine = (JSON.parse(out) as any[][]).flat()
+    .filter((r) => String(r?.user?.login ?? '').toLowerCase() === me.toLowerCase())
+    .filter((r) => r?.state === 'APPROVED' || r?.state === 'CHANGES_REQUESTED' || r?.state === 'DISMISSED')
+  const last = mine[mine.length - 1]
+  return last ? { id: Number(last.id), state: String(last.state) } : null
+}
+
+// Withdraw a review. GitHub has no delete for a submitted review — dismissing is the whole of "take it back", and the
+// message is mandatory and shows up on the PR timeline for everyone.
+// Returns the review's state as GitHub reports it afterwards, because the call can succeed without dismissing
+// anything: on a merged PR it answers 200 with the review untouched (verified against a real merged PR), so the
+// caller has to read the outcome rather than trust the status code.
+export async function dismissReview(repo: string, prNumber: number, reviewId: number, message: string): Promise<{ state: string }> {
+  const out = await gh([
+    'api', `repos/${repo}/pulls/${prNumber}/reviews/${reviewId}/dismissals`, '--method', 'PUT',
+    '-f', `message=${message}`, '-f', 'event=DISMISS',
+  ], 60_000)
+  let state = ''
+  try { state = String(JSON.parse(out)?.state ?? '') } catch { /* unparseable body → the endpoint re-reads instead */ }
+  return { state }
+}
+
 // Approve a PR as the logged-in gh user. No body: the drawer's button is an approval, not a comment — the review
 // comment has its own path (core/github/post.ts). GitHub approves whatever is at the head when this lands, which is
 // what clicking Approve on github.com does too.

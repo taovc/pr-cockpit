@@ -199,6 +199,18 @@
       "not_open": "This PR is no longer open — reopen the drawer to refresh",
       "pending_review": "You have an unsubmitted review on GitHub — submit or discard it first"
     },
+    "dismiss": {
+      "button": "Withdraw approval",
+      "title": "Dismiss your approval on GitHub (the reason is shown publicly)",
+      "yes": "Withdraw",
+      "running": "Withdrawing…",
+      "reasonPlaceholder": "Reason (optional)",
+      "failed": "Could not withdraw",
+      "no_approval": "You have no standing approval on this PR",
+      "forbidden": "You may not dismiss reviews here (needs repo admin, or the dismissal allow-list)",
+      "not_open": "This PR is merged or closed — GitHub will not withdraw the approval any more",
+      "not_dismissed": "GitHub accepted the request but the approval is still standing"
+    },
     "tabReview": "AI review",
     "tabTimeline": "Timeline",
     "tabChanges": "Changes",

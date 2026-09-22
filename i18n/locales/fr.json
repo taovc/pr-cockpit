@@ -199,6 +199,18 @@
       "not_open": "Cette PR n'est plus ouverte — rouvrez le panneau pour actualiser",
       "pending_review": "Vous avez une review non soumise sur GitHub — soumettez-la ou supprimez-la d'abord"
     },
+    "dismiss": {
+      "button": "Retirer l'approbation",
+      "title": "Retirer votre approbation sur GitHub (la raison est publique)",
+      "yes": "Retirer",
+      "running": "Retrait…",
+      "reasonPlaceholder": "Raison (facultatif)",
+      "failed": "Échec du retrait",
+      "no_approval": "Vous n'avez pas d'approbation en vigueur sur cette PR",
+      "forbidden": "Vous ne pouvez pas retirer de review ici (admin du dépôt ou liste d'autorisation requis)",
+      "not_open": "Cette PR est fusionnée ou fermée — GitHub ne retirera plus l'approbation",
+      "not_dismissed": "GitHub a accepté la demande mais l'approbation tient toujours"
+    },
     "tabReview": "Revue IA",
     "tabTimeline": "Chronologie",
     "tabChanges": "Modifications",
