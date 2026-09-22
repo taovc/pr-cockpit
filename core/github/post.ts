@@ -1,4 +1,4 @@
-import { ghBin } from './gh'
+import { clearOwnPendingReview, ghBin } from './gh'
 import { authorMoveOf, stanceOf } from '../recheckAxes'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -239,19 +239,10 @@ export async function postReview(opts: {
 }): Promise<{ url: string }> {
   const { repo, prNumber, headSha, assembled } = opts
 
-  // Self-heal: first clear our own leftover PENDING review (GitHub allows only one pending review per person per PR; a leftover makes a new review 422).
-  // Any PENDING visible in the GET response is necessarily ours (other people's pending reviews aren't visible), so just delete it.
-  try {
-    // With timeout: these two steps run inside the review's 'posting' claim window, and a gh call hanging forever would pin the row at 'posting' permanently (recover only runs at startup).
-    const { stdout } = await pexec(ghBin(), ['api', `repos/${repo}/pulls/${prNumber}/reviews`, '--paginate', '--slurp'], { maxBuffer: 1024 * 1024 * 16, timeout: 30_000 })
-    for (const r of (JSON.parse(stdout) as any[][]).flat()) {
-      if (r.state === 'PENDING') {
-        await pexec(ghBin(), ['api', `repos/${repo}/pulls/${prNumber}/reviews/${r.id}`, '--method', 'DELETE'], { timeout: 30_000 }).catch(() => {})
-      }
-    }
-  } catch {
-    /* A failed cleanup isn't fatal; if it matters, the real post below will error out */
-  }
+  // Self-heal a leftover PENDING review of ours before submitting (shared with the approve button; both submissions
+  // 422 on one). The calls inside carry timeouts: this runs inside the review's 'posting' claim window and a gh call
+  // hanging forever would pin the row at 'posting' permanently (recover only runs at startup).
+  await clearOwnPendingReview(repo, prNumber)
 
   // Write the payload to a temp file and pass --input <file> (async execFile has no stdin input support and would hang)
   const run = async (payload: object) => {
