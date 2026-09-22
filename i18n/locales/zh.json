@@ -199,6 +199,18 @@
       "not_open": "PR 已经不是 open 状态，刷新后再看",
       "pending_review": "你在 GitHub 上有一份未提交的 review，先提交或丢弃它再批准"
     },
+    "dismiss": {
+      "button": "取消批准",
+      "title": "在 GitHub 上撤回你的批准（dismiss review，理由会公开显示）",
+      "yes": "取消批准",
+      "running": "处理中…",
+      "reasonPlaceholder": "理由（可留空）",
+      "failed": "取消批准失败",
+      "no_approval": "你当前没有生效的批准",
+      "forbidden": "你没有 dismiss review 的权限（需要仓库管理员或在允许名单里）",
+      "not_open": "PR 已经合并或关闭，GitHub 不会再撤回这条批准",
+      "not_dismissed": "GitHub 收下了请求但这条批准仍然生效"
+    },
     "tabReview": "AI 审核",
     "tabTimeline": "时间线",
     "tabChanges": "改动",
