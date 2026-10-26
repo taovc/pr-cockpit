@@ -30,6 +30,7 @@ const form = reactive({
   codexFast: ((props.project as Project & { codexServiceTier?: string | null }).codexServiceTier || '') === 'fast',
   autoMaxRounds: (props.project as Project & { autoMaxRounds?: number }).autoMaxRounds ?? 2,
   verifyBeforePost: !!(props.project as Project & { verifyBeforePost?: boolean }).verifyBeforePost,
+  reviewEngineLevel: (props.project as Project & { reviewEngineLevel?: string }).reviewEngineLevel || 'high',
   autoCooldownMinutes: (props.project as Project & { autoCooldownMinutes?: number }).autoCooldownMinutes ?? 5,
 })
 const savingInfo = ref(false)
@@ -108,6 +109,7 @@ async function saveInfo() {
         codexServiceTier: form.codexFast ? 'fast' : null,
         autoMaxRounds: Math.min(10, Math.max(1, Number(form.autoMaxRounds) || 2)),
         verifyBeforePost: !!form.verifyBeforePost,
+        reviewEngineLevel: form.reviewEngineLevel,
         autoCooldownMinutes: Math.min(120, Math.max(0, Number(form.autoCooldownMinutes) ?? 5)),
       },
     })
@@ -362,8 +364,16 @@ function codexAuthClass(status: CodexSdkStatus | null) {
             class="w-16 text-sm border-b border-default py-1 bg-transparent outline-none focus:border-inverted mt-2"
           />
         </div>
-        <!-- Verify before post -->
-        <div class="flex flex-col">
+        <!-- Review engine level (Claude: the /code-review finder) -->
+        <div v-if="form.provider === 'claude'" class="flex flex-col">
+          <div class="text-[10px] uppercase tracking-[0.15em] text-dimmed">{{ $t('config.engineLevel') }}</div>
+          <p class="text-xs text-dimmed mt-1">{{ $t('config.engineLevelHint') }}</p>
+          <select v-model="form.reviewEngineLevel" class="block text-sm border-b border-default py-1 bg-transparent outline-none min-w-32 mt-2">
+            <option v-for="l in ['low', 'medium', 'high', 'xhigh', 'max']" :key="l" :value="l">{{ l }}</option>
+          </select>
+        </div>
+        <!-- Verify before post (Codex: the Claude pipeline checks every finding itself) -->
+        <div v-if="form.provider === 'codex'" class="flex flex-col">
           <div class="text-[10px] uppercase tracking-[0.15em] text-dimmed">{{ $t('config.verifyBeforePost') }}</div>
           <p class="text-xs text-dimmed mt-1">{{ $t('config.verifyBeforePostHint') }}</p>
           <div class="mt-2"><USwitch v-model="form.verifyBeforePost" /></div>

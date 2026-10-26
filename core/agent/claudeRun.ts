@@ -14,13 +14,14 @@ export type ClaudeRunOutput = { text: string; structured: unknown; usage: Provid
 let warnedVersion: string | null = null
 
 // Drain one review-family query: assistant text, tool calls, structured output, and usage stamped with the CLI version.
-export async function consumeClaudeRun(stream: AsyncIterable<any>, opts: { model?: string; onToolUse?: (block: any) => void }): Promise<ClaudeRunOutput> {
+export async function consumeClaudeRun(stream: AsyncIterable<any>, opts: { model?: string; onToolUse?: (block: any) => void; onResult?: (msg: any) => void; onMessage?: (msg: any) => void }): Promise<ClaudeRunOutput> {
   const out: ClaudeRunOutput = { text: '', structured: null, usage: null, costUsd: 0, subtype: null }
   let cliVersion: string | null = null
   let failure: string | null = null
   try {
     for await (const msg of stream) {
       cliVersion = claudeCliVersionOf(msg) ?? cliVersion
+      opts.onMessage?.(msg)
       if (msg.type === 'assistant') {
         const content = msg.message?.content
         if (Array.isArray(content)) {
@@ -34,7 +35,8 @@ export async function consumeClaudeRun(stream: AsyncIterable<any>, opts: { model
         out.usage = usageFromClaudeResult(msg, opts.model, cliVersion)
         out.subtype = typeof msg.subtype === 'string' ? msg.subtype : null
         out.structured = msg.structured_output ?? null
-        failure = claudeResultFailure(msg)
+        failure = failure ?? claudeResultFailure(msg) // a failed turn stays failed in a multi-turn run
+        opts.onResult?.(msg)
       }
     }
   } catch (e) {

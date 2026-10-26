@@ -54,7 +54,7 @@ export default defineNitroPlugin((nitroApp) => {
       // Tick everything for auto-post, but never overwrite a human's own decision provenance.
       d.update(schema.findings)
         .set({ checked: true, checkedBy: sql`CASE WHEN ${schema.findings.checked} = 1 AND ${schema.findings.checkedBy} IS NOT NULL THEN ${schema.findings.checkedBy} ELSE 'engine' END`, checkedAt: now() })
-        .where(and(eq(schema.findings.reviewId, reviewId), or(isNull(schema.findings.verifyStatus), ne(schema.findings.verifyStatus, 'refuted')))).run() // never auto-post what the verify pass refuted
+        .where(and(eq(schema.findings.reviewId, reviewId), or(and(isNull(schema.findings.tier), or(isNull(schema.findings.verifyStatus), ne(schema.findings.verifyStatus, 'refuted'))), and(eq(schema.findings.tier, 'must'), eq(schema.findings.verifyStatus, 'confirmed'))))).run() // older reviews: everything not refuted; scope reviews: only confirmed "must" items (same rule as isAutomatable)
       try {
         await $fetch(`/api/reviews/${reviewId}/post`, { method: 'POST', headers: cookieHeader, body: { dryRun: false } })
         return { posted: true }

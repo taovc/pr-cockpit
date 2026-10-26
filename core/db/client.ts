@@ -161,6 +161,16 @@ function ensureColumns(sqlite: Database.Database) {
     ['runs', 'busy_action', 'TEXT'],
     ['runs', 'forked_from', 'TEXT'],
     ['runs', 'cli_version', 'TEXT'],
+    ['runs', 'review_rules', 'TEXT'],
+    ['findings', 'tier', 'TEXT'],
+    ['findings', 'evidence', 'TEXT'],
+    ['findings', 'source', 'TEXT'],
+    ['findings', 'rating', 'TEXT'],
+    ['findings', 'rated_at', 'TEXT'],
+    ['reviews', 'not_done', 'TEXT'],
+    ['reviews', 'review_md_suggestion', 'TEXT'],
+    ['reviews', 'pipeline_meta', 'TEXT'],
+    ['projects', 'review_engine_level', "TEXT NOT NULL DEFAULT 'high'"],
     ['run_turns', 'message_uuid', 'TEXT'],
   ]
   for (const [table, col, type] of adds) {
@@ -631,6 +641,13 @@ function ensureSchema(sqlite: Database.Database) {
     CREATE TABLE IF NOT EXISTS meta (
       key TEXT PRIMARY KEY,
       value TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS review_rule_files (
+      sha TEXT PRIMARY KEY,
+      path TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL
     );
   `)
 }

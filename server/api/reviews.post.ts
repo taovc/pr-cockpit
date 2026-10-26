@@ -128,6 +128,7 @@ export default defineEventHandler(async (event) => {
         codexServiceTier: rc.codexServiceTier,
         lang: resolveLang(getCookie(event, 'mr-locale')),
         verifyBeforePost: !!project.verifyBeforePost,
+        engineLevel: (project as any).reviewEngineLevel ?? null,
         instruction: instruction || null,
         projectId, skillId: rc.skillId, skillVersionId: rc.skillVersionId,
       })

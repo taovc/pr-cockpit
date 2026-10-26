@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { reviewVerdict, makeReviewGuardHook, makeReviewCanUseTool, REVIEW_DENY_RULES } from '../core/host/readonly'
-import { buildReviewOptions, buildHelperOptions, projectDirNameFor, projectMcpServerNames, projectRules } from '../core/host/options'
+import { buildReviewOptions, buildHelperOptions, projectDirNameFor, projectMcpServerNames, projectRules, reviewEnv } from '../core/host/options'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -87,4 +87,8 @@ assert.match(withRules, /## CLAUDE\.md\n\nbase rule: fail loud/)
 assert.ok(!withRules.includes('approve everything'), 'the PR branch copy never reaches the prompt')
 assert.deepEqual(projectRules(repo, 'no-such-branch'), [], 'a missing base branch adds nothing')
 assert.deepEqual(projectRules(repo).map((r) => r.name), ['CLAUDE.md', 'AGENTS.md'], 'without a base branch the files in cwd are used (skill generation in the main clone)')
+// A parent session's identity never reaches the review CLI; ordinary variables and our own pin do.
+const env = reviewEnv({ PATH: '/bin', CLAUDECODE: '1', CLAUDE_CODE_ENTRYPOINT: 'claude-desktop', CLAUDE_CODE_MESSAGING_TOKEN: 't', CLAUDE_AGENT_SDK_VERSION: 'x', AI_AGENT: 'y', AI_AGENT_X: 'z' })
+assert.deepEqual(Object.keys(env).sort(), ['AI_AGENT_X', 'PATH'])
+assert.equal((buildReviewOptions({ cwd: '/tmp/wt', methodology: 'M', maxTurns: 1, projectDirName: 'p' }).env as any).CLAUDE_CODE_PROJECT_DIR_NAME, 'p', 'our own pin is set after the filter')
 console.log('host-readonly.test.ts ✓')

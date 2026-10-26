@@ -11,8 +11,15 @@ import { isRecheckResolved } from '../recheckAxes'
 // two from drifting apart. db/schema are injected by the caller (core does not depend on the runtime db directly).
 const ACTIONABLE_SEVERITY = new Set(['High', 'Medium'])
 
+// Scope-review findings carry a tier: automation only ever touches "must fix in this PR" that the check confirmed.
+// Older findings (no tier) keep the severity rule.
+export function isAutomatable(f: { tier?: string | null; verifyStatus?: string | null; severity: string }): boolean {
+  if (f.tier != null) return f.tier === 'must' && f.verifyStatus === 'confirmed'
+  return f.verifyStatus !== 'refuted'
+}
+
 export type ReviewFindingStats = {
-  total: number // total findings from the review (0 = clean PR)
+  total: number // findings automation may post (0 = nothing to post)
   actionable: number // how many still need handling
   actionableFindings: any[] // the finding rows still needing handling (by sortOrder, for buildAutoFixMessage)
 }
@@ -37,10 +44,10 @@ export function reviewFindingStats(db: any, schema: any, reviewId: string): Revi
   }
 
   const actionableFindings = findings.filter((f) => {
-    if (!ACTIONABLE_SEVERITY.has(f.severity)) return false
-    if (f.verifyStatus === 'refuted') return false // the verify pass refuted it → not something to auto-fix
+    if (!isAutomatable(f)) return false
+    if (f.tier == null && !ACTIONABLE_SEVERITY.has(f.severity)) return false
     const rc = latest.get(f.id)
     return !rc || !isRecheckResolved(rc) // never rechecked, or the latest round left it open → still to fix
   })
-  return { total: findings.length, actionable: actionableFindings.length, actionableFindings }
+  return { total: findings.filter(isAutomatable).length, actionable: actionableFindings.length, actionableFindings }
 }

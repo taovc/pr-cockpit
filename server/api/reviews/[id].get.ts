@@ -31,7 +31,8 @@ export default defineEventHandler(async (event) => {
 
   // Observability: the latest run of this review (cost / tokens / model / skill version) + the sum over all its runs.
   const runs = d.select().from(schema.runs).where(eq(schema.runs.reviewId, id)).orderBy(desc(schema.runs.createdAt)).all()
-  const latest = runs.find((r) => r.subkind !== 'verify') ?? null
+  const STAGES = new Set(['verify', 'engine', 'context', 'check', 'tier']) // per-stage runs; the review's own run is the umbrella
+  const latest = runs.find((r) => !STAGES.has(r.subkind)) ?? null
   const verifyRun = runs.find((r) => r.subkind === 'verify') ?? null
   let run: any = null
   if (latest) {

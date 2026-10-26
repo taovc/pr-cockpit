@@ -9,6 +9,8 @@ const Body = z.object({
   checked: z.boolean().optional(),
   checkedBy: z.enum(['human', 'auto']).optional(),
   notes: z.string().optional(),
+  rating: z.enum(['must', 'later', 'noise', 'wrong']).nullable().optional(), // the reviewer's value rating (null clears it)
+  evidence: z.enum(['inferred', 'ci', 'preview', 'github']).optional(), // the reviewer marks what they saw in a preview
 })
 
 export default defineEventHandler(async (event) => {
@@ -27,6 +29,8 @@ export default defineEventHandler(async (event) => {
     if (by === 'human') patch.humanAcceptedAt = parsed.data.checked ? ts : null
   }
   if (parsed.data.notes !== undefined) patch.notes = parsed.data.notes
+  if (parsed.data.evidence !== undefined) patch.evidence = parsed.data.evidence
+  if (parsed.data.rating !== undefined) { patch.rating = parsed.data.rating; patch.ratedAt = parsed.data.rating ? new Date().toISOString() : null }
   if (Object.keys(patch).length) {
     const d = db()
     const row = d.select().from(schema.findings).where(eq(schema.findings.id, id)).get()

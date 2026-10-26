@@ -28,6 +28,7 @@ assert.match(claudeResultFailure({ ...ok, num_turns: 0, result: 'API Error: 400 
 assert.match(claudeResultFailure({ ...ok, is_error: true, num_turns: 1, terminal_reason: 'api_error', api_error_status: 404, result: "There's an issue with the selected model" })!, /selected model/)
 assert.equal(claudeResultFailure({ ...ok, terminal_reason: 'model_error', result: '' }), 'Claude run failed (model_error)')
 assert.equal(claudeResultFailure({ ...ok, result: 'API Error: the handler swallows 500s' }), null, 'a normal answer may start with "API Error"')
+assert.equal(claudeResultFailure({ ...ok, num_turns: 0, result: '10 findings, most severe first' }), null, 'a forked slash command answers with zero turns of its own')
 assert.equal(claudeResultFailure({ type: 'result', subtype: 'error_max_turns', is_error: true, num_turns: 60, terminal_reason: 'max_turns' }), null, 'cut-short runs are left to the parser')
 
 // ── the CLI version comes from system/init ──

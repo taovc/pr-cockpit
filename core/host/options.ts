@@ -62,14 +62,26 @@ export type ReviewOptionsSpec = {
   abort?: AbortController
   outputSchema?: Record<string, unknown> // JSON Schema the CLI validates the final message against (structured_output on the result)
   baseBranch?: string // project instructions are read from origin/<baseBranch>; without it, from the files in cwd
+  clean?: boolean // load no configuration and no memory at all (the scope-review pipeline); everything it needs is in the prompt
+  baseRules?: boolean // append the base branch's CLAUDE.md / AGENTS.md (default true)
+  resume?: string // continue this session (a second query on the same conversation)
 }
 
 // Review family: only the user's own configuration is loaded; the PR branch's CLAUDE.md and .claude/ (settings, env, skills,
 // agents) are not, since the author controls them. The base branch's CLAUDE.md / AGENTS.md are appended instead.
+// Variables a parent Claude Code / desktop session leaves in the server's environment. Passed on, they make the review CLI
+// act as part of that session (a forked /code-review returned "Command completed" at once), so a review never inherits them.
+const SESSION_ENV = /^(CLAUDECODE|CLAUDE_CODE_|CLAUDE_AGENT_SDK_|AI_AGENT$)/
+
+export function reviewEnv(base: NodeJS.ProcessEnv = process.env): Record<string, string | undefined> {
+  return Object.fromEntries(Object.entries(base).filter(([k]) => !SESSION_ENV.test(k)))
+}
+
 export function buildReviewOptions(spec: ReviewOptionsSpec): Options {
   const bin = resolveClaudeExecutable()
-  const env: Record<string, string | undefined> = { ...process.env }
-  if (spec.projectDirName) env.CLAUDE_CODE_PROJECT_DIR_NAME = spec.projectDirName
+  const env = reviewEnv()
+  if (spec.projectDirName) env.CLAUDE_CODE_PROJECT_DIR_NAME = spec.projectDirName // transcripts land in the project's dir; clean runs load no memory from it
+  const rules = spec.baseRules === false ? [] : projectRules(spec.cwd, spec.baseBranch)
   // No MCP in a review. The PR branch's own .mcp.json is also listed as disabled, in case strictMcpConfig ever stops
   // covering it: the CLI would otherwise spawn those servers at init, unseen by the three read-only layers.
   const projectMcp = projectMcpServerNames(spec.cwd)
@@ -77,16 +89,17 @@ export function buildReviewOptions(spec: ReviewOptionsSpec): Options {
     cwd: spec.cwd,
     ...(spec.model ? { model: spec.model } : {}),
     ...(spec.effort ? { effort: spec.effort as Options['effort'] } : {}),
-    systemPrompt: { type: 'preset', preset: 'claude_code', append: withProjectRules(spec.methodology, projectRules(spec.cwd, spec.baseBranch)) },
-    settingSources: ['user'],
+    systemPrompt: { type: 'preset', preset: 'claude_code', append: withProjectRules(spec.methodology, rules) },
+    settingSources: spec.clean ? [] : ['user'],
     permissionMode: 'default',
     canUseTool: makeReviewCanUseTool(),
     hooks: { PreToolUse: [{ hooks: [makeReviewGuardHook()] }] },
     disallowedTools: REVIEW_DISALLOWED_TOOLS,
-    settings: { permissions: { deny: REVIEW_DENY_RULES }, disableAllHooks: true, ...(projectMcp.length ? { disabledMcpjsonServers: projectMcp } : {}) },
+    settings: { permissions: { deny: REVIEW_DENY_RULES }, disableAllHooks: true, ...(spec.clean ? { autoMemoryEnabled: false } : {}), ...(projectMcp.length ? { disabledMcpjsonServers: projectMcp } : {}) } as Options['settings'],
     mcpServers: {},
     strictMcpConfig: true,
     maxTurns: spec.maxTurns,
+    ...(spec.resume ? { resume: spec.resume } : {}),
     ...(REVIEW_MAX_BUDGET_USD > 0 ? { maxBudgetUsd: REVIEW_MAX_BUDGET_USD } : {}),
     ...(spec.outputSchema ? { outputFormat: { type: 'json_schema', schema: spec.outputSchema } } : {}),
     env,
