@@ -207,7 +207,7 @@ See `.env.example`; key entries:
 | `CODEX_SERVICE_TIER` |  | Optional global default Codex/OpenAI speed tier; the project-level Fast toggle overrides it. To disable global fast, leave/delete it and also remove `service_tier` from `~/.codex/config.toml` if set globally |
 | `CODEX_PROJECT_DOC_FALLBACK_FILENAMES` | `CLAUDE.md,.claude/CLAUDE.md` | Project docs Codex reads when `AGENTS.md` is absent |
 | `OPENAI_API_KEY` | `sk-...` | Optional when local Codex login is unavailable |
-| `TRANSLATE_MODEL` | `sonnet` | Lightweight model for rewriting GitHub comments into English |
+| `TRANSLATE_MODEL` | (empty) | Model for rewriting GitHub comments into English and for commit messages / titles; empty = the project's own model at low effort (Claude projects only) |
 | `ANTHROPIC_API_KEY` | `sk-ant-...` | Optional for the Claude path when local login is unavailable |
 | `DEFAULT_REPO` | `owner/repo` | Optional, default repo when pasting a bare PR number |
 | `DB_PATH` | `./data/cockpit.db` | SQLite path |

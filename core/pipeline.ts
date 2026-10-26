@@ -12,6 +12,7 @@ import { createRun, finishRun, recordRunUsage } from './runs/store'
 import { formatUsageLabel } from './runs/format'
 import type { ReviewProvider, ReviewRunner } from './agent/runners'
 import { reviewAborts } from './agent/reviewAborts'
+import { usageOfError } from './agent/claudeRun'
 import { projectDirNameFor } from './host/options'
 import {
   ROUND_EVENT, buildFindingIndex, buildHistoryDoc, computeRoundIntent, loadFindingHistory, writeReviewHistory,
@@ -199,6 +200,7 @@ async function runReviewJob(ctx: ReviewJobCtx) {
           finishRun(db, schema, verifyRunId, { status: 'done' })
           emit('stage', pickByLang(ctx.lang, VERIFY_STAGE).done(counts))
         } catch (e) {
+          recordRunUsage(db, schema, verifyRunId, usageOfError(e))
           if (abort.signal.aborted) throw e
           finishRun(db, schema, verifyRunId, { status: 'error', error: (e as Error).message })
           emit('stage', pickByLang(ctx.lang, VERIFY_STAGE).failed((e as Error).message))
@@ -241,7 +243,7 @@ async function runReviewJob(ctx: ReviewJobCtx) {
   } catch (e) {
     const stopped = abort.signal.aborted
     const message = stopped ? '已停止' : (e as Error).message
-    if (runId) finishRun(db, schema, runId, { status: stopped ? 'stopped' : 'error', error: message })
+    if (runId) { recordRunUsage(db, schema, runId, usageOfError(e)); finishRun(db, schema, runId, { status: stopped ? 'stopped' : 'error', error: message }) }
     setStatus('error', { error: message })
     emit('error', message)
   } finally {
@@ -379,7 +381,7 @@ async function runRecheckJob(ctx: ReviewJobCtx) {
   } catch (e) {
     const stopped = abort.signal.aborted
     const message = stopped ? '已停止' : (e as Error).message
-    if (runId) finishRun(db, schema, runId, { status: stopped ? 'stopped' : 'error', error: message })
+    if (runId) { recordRunUsage(db, schema, runId, usageOfError(e)); finishRun(db, schema, runId, { status: stopped ? 'stopped' : 'error', error: message }) }
     setStatus('error', { error: message })
     emit('error', message)
   } finally {

@@ -3,7 +3,7 @@ import { withContract } from './guard'
 import { buildReviewOptions } from '../host/options'
 import type { ReviewHostOptions } from './review'
 import { langName } from './lang'
-import { usageFromClaudeResult } from './usage'
+import { consumeClaudeRun, settleClaudeRun } from './claudeRun'
 import type { ProviderUsage } from '../runs/types'
 
 export const SKILL_SYSTEM = `You are a senior architect and code review lead. Your task is to tailor a "code review methodology" (review skill) to one specific project, to be used later as the system prompt when an AI reviews that project's PRs.`
@@ -76,23 +76,9 @@ export async function generateSkill(opts: SkillGenOptions): Promise<{ content: s
     prompt,
     options: buildReviewOptions({ cwd: opts.cwd, model: opts.model, effort: opts.effort, methodology: withContract(SYSTEM), maxTurns: 80, projectDirName: opts.projectDirName, abort: opts.abort }),
   })
-  let text = ''
-  let costUsd = 0
-  let usage: ProviderUsage | null = null
-  for await (const msg of stream) {
-    if (msg.type === 'assistant') {
-      const content = (msg as any).message?.content
-      if (Array.isArray(content)) {
-        for (const b of content) {
-          if (b.type === 'text') text += b.text
-          else if (b.type === 'tool_use') opts.onTool?.(b.name, String(b.input?.command || b.input?.pattern || b.input?.file_path || '').slice(0, 80))
-        }
-      }
-    } else if (msg.type === 'result') {
-      const c = (msg as any).total_cost_usd
-      if (typeof c === 'number') costUsd += c
-      usage = usageFromClaudeResult(msg, opts.model)
-    }
-  }
-  return { content: cleanSkillContent(text), costUsd, usage }
+  const out = await consumeClaudeRun(stream, {
+    model: opts.model,
+    onToolUse: (b) => opts.onTool?.(b.name, String(b.input?.command || b.input?.pattern || b.input?.file_path || '').slice(0, 80)),
+  })
+  return { content: cleanSkillContent(out.text), costUsd: out.costUsd, usage: out.usage }
 }

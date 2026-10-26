@@ -71,8 +71,10 @@ export default defineNitroPlugin((nitroApp) => {
         // 400 = nothing to post (the re-check filtered out every finding) → normal, not an error, stay silent; anything
         // else (translation failure/network/422) → report it to the timeline as an error.
         if (code === 400) return { posted: false }
-        console.log(`[automation] review ${reviewId} 发评论失败: ${msg}`)
-        return { posted: false, error: msg }
+        // 422 = the language check held the post (left for a human to preview); not a failure of the post itself.
+        const note = code === 422 ? `语言检查拦下了自动发评论，已停下等你在预览里确认：${msg}` : msg
+        console.log(`[automation] review ${reviewId} 发评论失败: ${note}`)
+        return { posted: false, error: note }
       }
     },
     // Auto-fix: create/reuse the fix task → build the default instruction from the review findings → start a chat that edits the code (no commit)

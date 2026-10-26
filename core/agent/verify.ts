@@ -3,7 +3,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk'
 import { buildReviewOptions, type ReviewOptionsSpec } from '../host/options'
 import { withContract } from './guard'
 import { jsonSchemaFor, parseStructured } from './structured'
-import { usageFromClaudeResult } from './usage'
+import { consumeClaudeRun, settleClaudeRun } from './claudeRun'
 import { resolveLang, outputLangClause } from './lang'
 import { runCodexReadonly } from '../codex/oneshot'
 import type { ProviderUsage } from '../runs/types'
@@ -93,27 +93,11 @@ export async function runVerifyAgent(opts: VerifyAgentOptions): Promise<{ result
     prompt: buildVerifyPrompt(opts),
     options: buildReviewOptions({ cwd: opts.cwd, model: opts.model, effort: opts.effort, methodology: withContract(methodology), maxTurns: 40, baseBranch: opts.defaultBranch, projectDirName: opts.projectDirName, abort: opts.abort, outputSchema: jsonSchemaFor(VerifyResultSchema) }),
   })
-  let text = ''
-  let costUsd = 0
-  let usage: ProviderUsage | null = null
-  let structured: unknown = null
-  for await (const msg of stream) {
-    if (msg.type === 'assistant') {
-      const content = (msg as any).message?.content
-      if (Array.isArray(content)) {
-        for (const block of content) {
-          if (block.type === 'text') text += block.text
-          else if (block.type === 'tool_use') opts.onTool?.(block.name, String(block.input?.command ?? block.input?.pattern ?? block.input?.file_path ?? '').slice(0, 80))
-        }
-      }
-    } else if (msg.type === 'result') {
-      const c = (msg as any).total_cost_usd
-      if (typeof c === 'number') costUsd += c
-      usage = usageFromClaudeResult(msg, opts.model)
-      structured = (msg as any).structured_output ?? null
-    }
-  }
-  return { result: parseStructured(VerifyResultSchema, structured, text), costUsd, usage }
+  const out = await consumeClaudeRun(stream, {
+    model: opts.model,
+    onToolUse: (block) => opts.onTool?.(block.name, String(block.input?.command ?? block.input?.pattern ?? block.input?.file_path ?? '').slice(0, 80)),
+  })
+  return { result: settleClaudeRun(out, () => parseStructured(VerifyResultSchema, out.structured, out.text)), costUsd: out.costUsd, usage: out.usage }
 }
 
 // Verdict per fid with 'unsure' for anything the verifier did not mention.

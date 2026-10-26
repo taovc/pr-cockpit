@@ -5,7 +5,7 @@ import { buildReviewOptions, type ReviewOptionsSpec } from '../host/options'
 import { jsonSchemaFor, parseStructured } from './structured'
 import { outputLangClause, resolveLang } from './lang'
 import { REVIEW_SECTIONS } from './reviewSections'
-import { usageFromClaudeResult } from './usage'
+import { consumeClaudeRun, settleClaudeRun } from './claudeRun'
 import type { ProviderUsage } from '../runs/types'
 
 export const FindingSchema = z.object({
@@ -99,33 +99,13 @@ export async function runReviewAgent(opts: ReviewAgentOptions): Promise<{ result
     options: buildReviewOptions({ cwd: opts.cwd, model: opts.model, effort: opts.effort, methodology: withContract(opts.methodology), maxTurns: 60, baseBranch: opts.defaultBranch, projectDirName: opts.projectDirName, abort: opts.abort, outputSchema: REVIEW_JSON_SCHEMA }),
   })
 
-  let text = ''
-  let costUsd = 0
-  let usage: ProviderUsage | null = null
-  let structured: unknown = null
-  for await (const msg of stream) {
-    if (msg.type === 'assistant') {
-      const content = (msg as any).message?.content
-      if (Array.isArray(content)) {
-        for (const block of content) {
-          if (block.type === 'text') text += block.text
-          else if (block.type === 'tool_use') {
-            const info =
-              typeof block.input?.command === 'string'
-                ? block.input.command
-                : block.input?.pattern || block.input?.file_path || ''
-            opts.onTool?.(block.name, String(info).slice(0, 80))
-          }
-        }
-      }
-    } else if (msg.type === 'result') {
-      const c = (msg as any).total_cost_usd
-      if (typeof c === 'number') costUsd += c
-      usage = usageFromClaudeResult(msg, opts.model) // tokens / per-model cost / duration for the run record
-      structured = (msg as any).structured_output ?? null
-    }
-  }
-
-  const parsed = parseStructured(ReviewResultSchema, structured, text)
-  return { result: parsed, costUsd, raw: text, usage }
+  const out = await consumeClaudeRun(stream, {
+    model: opts.model,
+    onToolUse: (block) => {
+      const info = typeof block.input?.command === 'string' ? block.input.command : block.input?.pattern || block.input?.file_path || ''
+      opts.onTool?.(block.name, String(info).slice(0, 80))
+    },
+  })
+  const parsed = settleClaudeRun(out, () => parseStructured(ReviewResultSchema, out.structured, out.text))
+  return { result: parsed, costUsd: out.costUsd, raw: out.text, usage: out.usage }
 }

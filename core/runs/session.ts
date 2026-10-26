@@ -256,7 +256,7 @@ export async function runSessionTurn(ctx: SessionTurnCtx, opts: { userTurnId?: s
     }
     // branch_worktree first turn: a short title from the requirement (background; the list falls back to the description).
     if (run.workspaceType === 'branch_worktree' && isFirstTurn && !run.title && ctx.defaults.translateModel !== undefined) {
-      void genFeatureTitle({ provider, model: ctx.defaults.translateModel || model, requirement: `${run.description || ctx.message}\n${issueEnriched}`, lang: ctx.lang, cwd: ctx.project?.localPath || cwd })
+      void genFeatureTitle({ provider, model: ctx.defaults.translateModel || model, codexServiceTier: ctx.defaults.codexServiceTier, requirement: `${run.description || ctx.message}\n${issueEnriched}`, lang: ctx.lang, cwd: ctx.project?.localPath || cwd })
         .then((title) => { if (title) db.update(schema.runs).set({ title, updatedAt: now() }).where(eq(schema.runs.id, runId)).run() })
         .catch(() => { /* the list shows the description instead */ })
     }

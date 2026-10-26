@@ -50,11 +50,16 @@ export async function runCodexText(opts: {
   model?: string
   effort?: string
   serviceTier?: CodexServiceTier | string | null
+  timeoutMs?: number // interrupt the turn and fail after this long
 }): Promise<string> {
   const runId = `codex-helper-${nanoid(8)}`
   await codexHost.ensure({ runId, kind: 'helper', cwd: opts.cwd ?? process.cwd(), model: opts.model, effort: opts.effort, codexServiceTier: opts.serviceTier ?? null })
   try {
-    const r = await codexHost.send(runId, opts.prompt)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = opts.timeoutMs
+      ? new Promise<never>((_, reject) => { timer = setTimeout(() => { void codexHost.interrupt(runId); reject(new Error(`Codex helper timed out after ${opts.timeoutMs} ms`)) }, opts.timeoutMs) })
+      : null
+    const r = await (timeout ? Promise.race([codexHost.send(runId, opts.prompt), timeout]) : codexHost.send(runId, opts.prompt)).finally(() => clearTimeout(timer))
     if (r.isError) throw new Error(`Codex helper turn failed: ${r.error || r.text || 'unknown error'}`)
     return (r.text || '').trim()
   } finally {
