@@ -1,17 +1,12 @@
-import { runHelperText } from '../host/helpers'
-import { runCodexText } from '../codex/oneshot'
+import { runProviderHelperText } from '../host/helpers'
 import { langName } from './lang'
 import type { ReviewProvider } from './runners'
 
-// Generate a short "having understood the requirement" title from the raw requirement (which may contain an issue link + the issue body fetched by the backend); used as the feature list/drawer title.
-// One sentence from a cheap/fast model, following the project's provider (never mixed, same as assembleReview's translate):
-//   - claude → `claude --print`, model = rc.translateModel (defaults to the fast TRANSLATE_MODEL)
-//   - codex  → runCodexText (read-only sandbox, no network), model = the codex main model
-// model is passed in from resolveReviewConfig.translateModel (config-driven, no hardcoded model name) → swapping/renaming a model only touches env/config.
-// Returns an empty string on failure/timeout (the caller falls back to the truncated raw description). The title uses the working language (a UI label for the user, not the public PR title).
+// A short title for a feature run from its raw requirement, in the working language; '' on failure (the list shows the description).
 export async function genFeatureTitle(opts: {
   provider: ReviewProvider
   model: string
+  codexServiceTier?: string | null
   requirement: string
   lang: string
   cwd?: string
@@ -23,9 +18,7 @@ export async function genFeatureTitle(opts: {
 Feature request:
 ${clipped}`
   try {
-    const out = opts.provider === 'codex'
-      ? await runCodexText({ prompt, model: opts.model || undefined, cwd: opts.cwd })
-      : await runHelperText({ prompt, cwd: opts.cwd || process.cwd(), model: opts.model || 'sonnet', effort: 'low', timeoutMs: 60_000 })
+    const out = await runProviderHelperText(opts, { prompt, cwd: opts.cwd || process.cwd(), timeoutMs: 60_000 })
     return (out || '').trim().split('\n')[0]?.replace(/^["'`]+|["'`]+$/g, '').replace(/[。.]\s*$/, '').slice(0, 80).trim() || ''
   } catch {
     return ''

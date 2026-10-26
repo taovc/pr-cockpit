@@ -1,6 +1,8 @@
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import { buildHelperOptions } from './options'
 import { claudeResultFailure } from '../agent/usage'
+import { runCodexText } from '../codex/oneshot'
+import type { ReviewProvider } from '../agent/runners'
 
 // One-shot text generation through the SDK (replaces `claude --print`): explicit cwd, no user configuration, no tools.
 export async function runHelperText(opts: { prompt: string; cwd: string; model?: string; effort?: string; timeoutMs?: number }): Promise<string> {
@@ -24,4 +26,12 @@ export async function runHelperText(opts: { prompt: string; cwd: string; model?:
   } finally {
     clearTimeout(timer)
   }
+}
+
+// One-shot text in the project's own provider (never mixed), at low effort.
+export type HelperTarget = { provider: ReviewProvider; model: string; codexServiceTier?: string | null }
+export function runProviderHelperText(t: HelperTarget, opts: { prompt: string; cwd: string; timeoutMs?: number; effort?: string }): Promise<string> {
+  const effort = opts.effort || 'low'
+  if (t.provider === 'codex') return runCodexText({ prompt: opts.prompt, model: t.model || undefined, effort, cwd: opts.cwd, serviceTier: t.codexServiceTier, timeoutMs: opts.timeoutMs })
+  return runHelperText({ prompt: opts.prompt, cwd: opts.cwd, model: t.model || 'sonnet', effort, timeoutMs: opts.timeoutMs })
 }

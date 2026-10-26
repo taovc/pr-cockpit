@@ -5,8 +5,7 @@ import { promisify } from 'node:util'
 import { writeFile, rm, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { runHelperText } from '../host/helpers'
-import { runCodexText } from '../codex/oneshot'
+import { runProviderHelperText } from '../host/helpers'
 import type { ReviewProvider } from '../agent/runners'
 
 const pexec = promisify(execFile)
@@ -51,6 +50,19 @@ function planFinding(f: PostFinding): Plan {
   return { action: 'comment', kind: 'normal' }
 }
 
+// Posted text must be English. Only prose is checked: fences, code-like inline spans and our HTML marker are exempt.
+const CJK = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\u3000-\u303f\uff00-\uffef\u1100-\u11ff\uac00-\ud7af]/ // CJK, kana, hangul, CJK punctuation and fullwidth forms
+// Code (quotes, brackets, operators, paths) or a short literal is exempt; a bare sentence wrapped in backticks is still prose.
+const codeLike = (s: string) => /['"=(){}[\]<>/\\.:_;,]/.test(s) || (s.length <= 40 && !/[，。！？；：]/.test(s))
+
+export function untranslatedLine(body: string): string | null {
+  const prose = (body || '')
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/`([^`\n]*)`/g, (_m, inner: string) => (codeLike(inner) ? '' : inner))
+    .replace(/<!--[\s\S]*?-->/g, '')
+  return prose.split('\n').map((l) => l.trim()).find((l) => CJK.test(l)) ?? null
+}
+
 // Set of commentable line numbers on the new-file side (RIGHT) of the diff, per file
 function rightLines(diff: string): Map<string, Set<number>> {
   const map = new Map<string, Set<number>>()
@@ -84,39 +96,75 @@ function parseLoc(loc: string | null): { path: string; line: number } | null {
   return { path: m[1]!, line: Number(m[2]) }
 }
 
-// Translate the Chinese findings into English PR comment bodies (content published to GitHub is in English). One-shot text generation.
-// Routed by the project's provider: claude goes through `claude --print` (prompt fed via stdin, so the server never hangs waiting on stdin);
-// codex goes through the Codex SDK's one-shot run(). **Never mixed**: a codex project's translations also come from codex.
-async function claudePrint(model: string, prompt: string, cwd?: string): Promise<string> {
-  return runHelperText({ prompt, cwd: cwd || process.cwd(), model: model || 'sonnet', timeoutMs: 120_000 })
+// Drop a ```markdown wrapper around the whole answer; fences that belong to the body (it starts or ends with a code
+// block) are kept — a wrapper never has another fence inside it.
+export function stripWrapperFence(t: string): string {
+  const m = /^```(?:markdown|md)?[ \t]*\n([\s\S]*?)\n?```\s*$/i.exec((t || '').trim())
+  return (m && !m[1]!.includes('```') ? m[1]! : t || '').trim()
 }
-function makePrint(provider: ReviewProvider, model: string, cwd?: string, codexServiceTier?: string | null): (prompt: string) => Promise<string> {
-  if (provider === 'codex') return (prompt) => runCodexText({ prompt, model: model || undefined, cwd, serviceTier: codexServiceTier })
-  return (prompt) => claudePrint(model, prompt, cwd)
+
+// One corrective pass when the answer still carries the source language; if that pass fails, keep the first answer.
+export function makePrintEnglish(print: (prompt: string) => Promise<string>): (prompt: string) => Promise<string> {
+  return async (prompt) => {
+    const out = stripWrapperFence(await print(prompt))
+    if (!out) throw new Error('empty translation') // falls back to the source-language title otherwise, unflagged
+    const leak = untranslatedLine(out)
+    if (!leak) return out
+    try {
+      return stripWrapperFence(await print(`The English translation below still contains text in the source language. Rewrite it so that ALL prose — including the bold title line — is professional English. Only file paths, line numbers, identifiers and code may stay as they are. A literal value quoted from the code (a string, an identifier) stays as-is inside backticks; never put a sentence in backticks to keep it untranslated. Output ONLY the corrected text, nothing else.
+
+STILL UNTRANSLATED: ${leak}
+
+TEXT TO CORRECT:
+${out}`)) || out
+    } catch {
+      return out
+    }
+  }
 }
+
+// Findings → English PR comment bodies, one-shot per finding in the project's own provider (never mixed).
+function makePrint(provider: ReviewProvider, model: string, effort: string | undefined, cwd?: string, codexServiceTier?: string | null): (prompt: string) => Promise<string> {
+  return (prompt) => runProviderHelperText({ provider, model, codexServiceTier }, { prompt, cwd: cwd || process.cwd(), effort, timeoutMs: 120_000 })
+}
+
+// Appended to every prompt branch: each one hands over source-language text.
+const TO_ENGLISH = `Translate everything into professional English — the input may be in any language, the output must not be. EVERY piece of prose is English, the bold title line included; a title that opens with an identifier is still prose, so carry the identifier over and translate the words around it. What stays verbatim is only identifiers, file paths, line numbers and anything inside backticks or code fences — never a whole sentence or title.`
 
 // Each finding is translated independently in parallel (every call emits little output, a few seconds) → wall clock ≈ the slowest one, not the sum.
 async function translate(
   provider: ReviewProvider,
   model: string,
+  effort: string | undefined,
   cwd: string | undefined,
   codexServiceTier: string | null | undefined,
   findings: PostFinding[],
   globalNotes: string,
-): Promise<{ globalNotesEn: string; bodies: Record<string, string> }> {
-  const print = makePrint(provider, model, cwd, codexServiceTier)
+): Promise<{ globalNotesEn: string; bodies: Record<string, string>; untranslated: { fid: string; sample: string }[]; failed: string[] }> {
+  const print = makePrint(provider, model, effort, cwd, codexServiceTier)
   const tasks: Promise<void>[] = []
   const bodies: Record<string, string> = {}
+  const untranslated: { fid: string; sample: string }[] = []
+  const failed: string[] = [] // a translation that threw: its finding would otherwise be posted in the source language
   let globalNotesEn = ''
+
+  const printEnglish = makePrintEnglish(print)
 
   if (globalNotes.trim()) {
     tasks.push(
-      print(`Translate this PR-review preface (any source language) into concise professional English. Output ONLY the English text, no preamble:\n\n${globalNotes}`)
-        .then((t) => { globalNotesEn = t }),
+      printEnglish(`Translate this PR-review preface into concise professional English. Output ONLY the English text, no preamble.
+${TO_ENGLISH}
+
+PREFACE (source language):
+${globalNotes}`)
+        .then((t) => {
+          globalNotesEn = t
+          const leak = untranslatedLine(t)
+          if (leak) untranslated.push({ fid: 'notes', sample: leak.slice(0, 120) })
+        })
+        .catch(() => { failed.push('notes') }),
     )
   }
-
-  const strip = (t: string) => t.replace(/^```(?:markdown|md)?\s*/i, '').replace(/```\s*$/i, '').trim()
 
   for (const f of findings) {
     const plan = planFinding(f)
@@ -137,19 +185,23 @@ async function translate(
     if (plan.action === 'fixed') {
       // Confirmed fixed: one sentence for the summary's "Confirmed fixed" list (plain text, no heading, no fence)
       prompt = `The author CONFIRMED-FIXED this PR-review finding. Write ONE short professional English sentence acknowledging it's resolved, naming the topic so the author knows which finding. Plain text only — no markdown heading, no bullet, no code fence.
+${TO_ENGLISH}
+
 FINDING TITLE (source language): ${f.title}
 RE-REVIEW NOTE (source language): ${verdict}`
     } else if (plan.kind === 'partial') {
       // Partially fixed / fixed incorrectly: only say what's still missing
       prompt = `Write ONE finding of a GitHub PR review as professional English markdown. This finding was RE-REVIEWED: the author's latest changes only PARTIALLY addressed it (or addressed it incorrectly). Focus the comment on WHAT IS STILL MISSING OR WRONG — briefly acknowledge what was done, then state precisely what remains. Do NOT restate the whole original finding.
-Output ONLY the markdown body — a bold line "**[<severity>] <title>**", then the remaining problem, then a fix section. Keep file paths, line numbers, identifiers and any code fences UNCHANGED.${noteClause}
+Output ONLY the markdown body — a bold line "**[<severity>] <translated title>**", then the remaining problem, then a fix section.
+${TO_ENGLISH}${noteClause}
 
 RE-REVIEW VERDICT (source language): ${verdict}
 ORIGINAL FINDING (source language): ${JSON.stringify(one)}`
     } else if (plan.kind === 'reply') {
       // Author replied without changing code: post a response to that reply (here the note is what the reviewer wants to say back, not an instruction on how to write the comment)
       prompt = `Write ONE GitHub PR-review comment as professional English markdown. Context: you previously raised the finding below; the author REPLIED in the PR but did NOT change the code. Respond to the author's reply and move the discussion forward — concede, push back with reasoning, or ask for clarification — per the reviewer's response. Do NOT just restate the original finding.
-Output ONLY the markdown body (you may open with a bold "**[<severity>] <title>**" line). Keep file paths, line numbers, identifiers and any code fences UNCHANGED.
+Output ONLY the markdown body (you may open with a bold "**[<severity>] <translated title>**" line).
+${TO_ENGLISH}
 
 AUTHOR'S REPLY / RE-REVIEW VERDICT (source language): ${verdict}
 REVIEWER'S RESPONSE TO THE AUTHOR (source language — weave its intent into the comment, do NOT quote verbatim): ${f.notes}
@@ -157,17 +209,25 @@ ORIGINAL FINDING for context (source language): ${JSON.stringify(one)}`
     } else {
       // normal: translate the original finding (original behavior)
       prompt = `Write ONE finding of a GitHub PR review as professional English markdown. Output ONLY the markdown body — no preamble, no outer code fences.
-Format: a bold line "**[<severity>] <title>**", then the problem, then detail (keep any lists), then a fix section. If "preexisting" is true, note "(pre-existing, not introduced by this PR)". Keep file paths, line numbers, identifiers and any code fences UNCHANGED. Translate the content to professional English (source may be any language).${noteClause}
+Format: a bold line "**[<severity>] <translated title>**", then the problem, then detail (keep any lists), then a fix section. If "preexisting" is true, note "(pre-existing, not introduced by this PR)".
+${TO_ENGLISH}${noteClause}
 
 FINDING (source language):
 ${JSON.stringify(one)}`
     }
-    tasks.push(print(prompt).then((t) => { bodies[f.fid] = strip(t) }))
+    tasks.push(
+      printEnglish(prompt)
+        .then((out) => {
+          bodies[f.fid] = out
+          const leak = untranslatedLine(out)
+          if (leak) untranslated.push({ fid: f.fid, sample: leak.slice(0, 120) })
+        })
+        .catch(() => { failed.push(f.fid) }),
+    )
   }
 
-  // A single failed translation must not kill the whole post: failed findings fall back to their original title during assemble
   await Promise.allSettled(tasks)
-  return { globalNotesEn, bodies }
+  return { globalNotesEn, bodies, untranslated, failed }
 }
 
 export type AssembledReview = {
@@ -176,18 +236,34 @@ export type AssembledReview = {
   mode: 'review' | 'comment' | 'mixed'
   // Checked items not posted because of their recheck status (replied without a note / retracted) → shown in the preview so the user doesn't think they were dropped
   skipped: { fid: string; title: string; reason: 'replied-no-note' | 'retracted' }[]
+  // Items whose English is not trustworthy (translation threw, or still in the source language); fid 'notes' = the preface.
+  warnings: { fid: string; kind: 'failed' | 'untranslated'; sample: string }[]
+}
+
+// Unattended publishes stop on a language warning; a human publishing after the preview may accept it.
+export function languageHold(warnings: AssembledReview['warnings'] | undefined, accepted: boolean): string | null {
+  // A failed preface is left out of the post, so nothing in the source language would go out because of it.
+  const blocking = (warnings ?? []).filter((w) => !(w.fid === 'notes' && w.kind === 'failed'))
+  if (accepted || !blocking.length) return null
+  return `有 ${blocking.length} 条没转成英文，未发布；请在预览里确认后手动发布`
 }
 
 export async function assembleReview(opts: {
   provider?: ReviewProvider
   model: string
+  effort?: string // mechanical rewriting: run the project's own model at a low reasoning effort, not at the review's
   codexServiceTier?: string | null
   cwd?: string // codex translation needs a workingDirectory (the project's local clone path); without one it falls back to skipGitRepoCheck
   findings: PostFinding[]
   globalNotes: string
   diff: string
 }): Promise<AssembledReview> {
-  const { globalNotesEn, bodies } = await translate(opts.provider === 'codex' ? 'codex' : 'claude', opts.model, opts.cwd, opts.codexServiceTier, opts.findings, opts.globalNotes)
+  const { globalNotesEn, bodies, untranslated, failed } = await translate(opts.provider === 'codex' ? 'codex' : 'claude', opts.model, opts.effort, opts.cwd, opts.codexServiceTier, opts.findings, opts.globalNotes)
+  // A failed finding falls back to its source-language title; a failed preface is left out.
+  const warnings: AssembledReview['warnings'] = [
+    ...failed.map((fid) => ({ fid, kind: 'failed' as const, sample: '' })),
+    ...untranslated.map((u) => ({ fid: u.fid, kind: 'untranslated' as const, sample: u.sample })),
+  ]
   const right = rightLines(opts.diff)
 
   const comments: AssembledReview['comments'] = []
@@ -227,7 +303,7 @@ export async function assembleReview(opts: {
 
   const mode: AssembledReview['mode'] =
     comments.length && (summaryFindings.length || confirmedFixed.length) ? 'mixed' : comments.length ? 'review' : 'comment'
-  return { body, comments, mode, skipped }
+  return { body, comments, mode, skipped, warnings }
 }
 
 // Actually submit a PR review (inline + summary). On 422 (line not part of the diff), merge everything into the body and resend once.
