@@ -26,6 +26,8 @@ export function getDb(dbPath: string) {
   migrateLegacyRuns(sqlite)
   backfillSkillVersions(sqlite)
   backfillLegacyRunCosts(sqlite)
+  // Reviews no longer connect MCP; drop the retired switches.
+  sqlite.prepare(`DELETE FROM meta WHERE key IN ('agent.reviewMcp', 'agent.reviewMcpAllow')`).run()
   return _db
 }
 

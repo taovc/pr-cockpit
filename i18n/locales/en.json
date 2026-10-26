@@ -735,14 +735,12 @@
       "codex": "Codex"
     },
     "chrome": "Claude in Chrome (--chrome)",
-    "chromeHint": "Start Claude Code with --chrome so the Claude in Chrome MCP server comes up. Applies to every Claude session (from the next turn) and needs the Chrome extension; reviews only get it when MCP is allowed below.",
-    "reviewMcp": "Let reviews use MCP",
-    "reviewMcpHint": "Off by default: the review family (review / re-review / recheck / automation) connects no MCP server and only reads the repository. On, reviews connect every MCP server configured in your CLI, like sessions do — including tools that write to external systems, and automatic reviews run unattended. Shared by both providers. Servers declared inside the PR branch itself (.mcp.json / .codex/config.toml) are never enabled for a review.",
+    "chromeHint": "Start Claude Code with --chrome so the Claude in Chrome MCP server comes up. Applies to every Claude session (from the next turn) and needs the Chrome extension; reviews never connect MCP.",
     "saved": "saved",
     "memoryDir": "memory / transcript directory",
     "groups": {
       "switches": "Switches PR Cockpit owns",
-      "switchesHint": "Only these two live in the PR Cockpit database and are edited here; everything below is the CLI’s own report, read-only.",
+      "switchesHint": "PR Cockpit stores one switch: Claude in Chrome for Claude sessions (none for Codex). Everything below is the CLI's own report, read-only.",
       "files": "Files read into the startup context",
       "filesHintClaude": "Files on disk the CLI may read + the files it reports as actually in context (auto-memory and the rules it really loaded included). “not loaded” only applies to a CLAUDE.md that exists but was not read; rule files get a row only when loaded — one with a paths condition that was not used does not appear. Settings contents are never read.",
       "filesHintCodex": "Files on disk Codex may read + the instruction files the app-server reports as injected and the config layers in effect. Whether the memories directory is injected is not reported by the protocol.",

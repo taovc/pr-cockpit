@@ -13,7 +13,6 @@ import { formatUsageLabel } from './runs/format'
 import type { ReviewProvider, ReviewRunner } from './agent/runners'
 import { reviewAborts } from './agent/reviewAborts'
 import { usageOfError } from './agent/claudeRun'
-import { getAgentSettings } from './agent/settings'
 import { projectDirNameFor } from './host/options'
 import {
   ROUND_EVENT, buildFindingIndex, buildHistoryDoc, computeRoundIntent, loadFindingHistory, writeReviewHistory,
@@ -113,7 +112,7 @@ async function runReviewJob(ctx: ReviewJobCtx) {
   let runId: string | null = null // the runs row for this execution (cost / tokens / model / skill version)
   const abort = new AbortController()
   reviewAborts.set(reviewId, abort)
-  const hostOpts = { abort, mcp: getAgentSettings(db, schema).reviewMcp, chrome: getAgentSettings(db, schema).chrome, projectDirName: projectDirNameFor(ctx.localPath) }
+  const hostOpts = { abort, projectDirName: projectDirNameFor(ctx.localPath) }
   try {
     setStatus('cloning')
     emit('stage', '准备代码（worktree）')
@@ -278,7 +277,7 @@ async function runRecheckJob(ctx: ReviewJobCtx) {
   let runId: string | null = null
   const abort = new AbortController()
   reviewAborts.set(reviewId, abort)
-  const hostOpts = { abort, mcp: getAgentSettings(db, schema).reviewMcp, chrome: getAgentSettings(db, schema).chrome, projectDirName: projectDirNameFor(ctx.localPath) }
+  const hostOpts = { abort, projectDirName: projectDirNameFor(ctx.localPath) }
   try {
     setStatus('rechecking')
     emit('stage', '复审：准备最新代码')

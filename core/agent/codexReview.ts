@@ -181,7 +181,6 @@ export async function runCodexReviewAgent(opts: ReviewAgentOptions): Promise<{ r
       serviceTier: opts.codexServiceTier,
       outputSchema: REVIEW_RESULT_JSON_SCHEMA,
       allowNetwork: true, // lets gh read PR metadata; write operations are blocked by the command guard
-      mcp: opts.mcp,
       label: 'review',
       onTool: opts.onTool,
     })
@@ -205,7 +204,6 @@ export async function runCodexRecheckAgent(opts: RecheckAgentOptions): Promise<{
       serviceTier: opts.codexServiceTier,
       outputSchema: RECHECK_RESULT_JSON_SCHEMA,
       allowNetwork: true,
-      mcp: opts.mcp,
       label: 'recheck',
       onTool: opts.onTool,
       onRawTool: (input) => { if (touchesHistory(input, opts.historyPath)) historyRead = true },

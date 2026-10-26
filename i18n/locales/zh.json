@@ -735,14 +735,12 @@
       "codex": "Codex"
     },
     "chrome": "Claude in Chrome（--chrome）",
-    "chromeHint": "启动 Claude Code 时带 --chrome，拉起 Claude in Chrome 这个 MCP server。所有 Claude 会话生效（下一轮起），需要 Chrome 扩展；审核只有在允许 MCP 时才会带上。",
-    "reviewMcp": "允许审核使用 MCP",
-    "reviewMcpHint": "默认关：审核家族（首审 / 复审 / recheck / 自动化）不连接任何 MCP，只看仓库。打开后审核和会话一样连接你 CLI 里配置的全部 MCP——包括能写外部系统的工具，而自动审核是无人值守触发的。两个 provider 共用这一项。PR 分支自带的 .mcp.json / .codex/config.toml 里的服务永远不会被审核启用。",
+    "chromeHint": "启动 Claude Code 时带 --chrome，拉起 Claude in Chrome 这个 MCP server。所有 Claude 会话生效（下一轮起），需要 Chrome 扩展；审核从不连接 MCP。",
     "saved": "已保存",
     "memoryDir": "记忆 / transcript 目录",
     "groups": {
       "switches": "PR Cockpit 自己的开关",
-      "switchesHint": "只有这两项存在 PR Cockpit 的数据库里、由本页修改；下面的一切都是 CLI 自己的报告，只读。",
+      "switchesHint": "PR Cockpit 只存一个开关：Claude 会话的 Claude in Chrome（Codex 没有）。下面的一切都是 CLI 自己的报告，只读。",
       "files": "启动时读入上下文的文件",
       "filesHintClaude": "磁盘上可能被读的文件 + CLI 报告实际进了上下文的文件（含自动记忆和真正被加载的 rules）。「未加载」只针对存在却没进上下文的 CLAUDE.md；rules 目录里只有被加载的文件才单独成行，带 paths 条件、这次没用到的不出现。不读 settings 内容。",
       "filesHintCodex": "磁盘上可能被读的文件 + app-server 报告实际注入的指令文件与生效的配置层。memories 目录协议不报告是否注入。",

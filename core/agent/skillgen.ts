@@ -74,7 +74,7 @@ export async function generateSkill(opts: SkillGenOptions): Promise<{ content: s
   const prompt = buildSkillPrompt(opts)
   const stream = query({
     prompt,
-    options: buildReviewOptions({ cwd: opts.cwd, model: opts.model, effort: opts.effort, methodology: withContract(SYSTEM), maxTurns: 80, mcp: opts.mcp, chrome: opts.chrome, projectDirName: opts.projectDirName, abort: opts.abort }),
+    options: buildReviewOptions({ cwd: opts.cwd, model: opts.model, effort: opts.effort, methodology: withContract(SYSTEM), maxTurns: 80, projectDirName: opts.projectDirName, abort: opts.abort }),
   })
   const out = await consumeClaudeRun(stream, {
     model: opts.model,

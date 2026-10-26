@@ -735,14 +735,12 @@
       "codex": "Codex"
     },
     "chrome": "Claude in Chrome (--chrome)",
-    "chromeHint": "Démarre Claude Code avec --chrome pour lancer le serveur MCP Claude in Chrome. S’applique à toutes les sessions Claude (dès le tour suivant), nécessite l’extension Chrome ; les revues ne l’obtiennent que si MCP est autorisé ci-dessous.",
-    "reviewMcp": "Autoriser MCP dans les revues",
-    "reviewMcpHint": "Désactivé par défaut : la famille revue (revue / re-revue / recheck / automatisation) ne connecte aucun serveur MCP et ne lit que le dépôt. Activé, les revues connectent tous les serveurs MCP configurés dans votre CLI, comme les sessions — y compris des outils qui écrivent dans des systèmes externes, alors que les revues automatiques tournent sans surveillance. Partagé par les deux providers. Les serveurs déclarés dans la branche de la PR elle-même (.mcp.json / .codex/config.toml) ne sont jamais activés pour une revue.",
+    "chromeHint": "Démarre Claude Code avec --chrome pour lancer le serveur MCP Claude in Chrome. S’applique à toutes les sessions Claude (dès le tour suivant), nécessite l’extension Chrome ; les revues ne connectent jamais MCP.",
     "saved": "enregistré",
     "memoryDir": "dossier mémoire / transcript",
     "groups": {
       "switches": "Interrupteurs propres à PR Cockpit",
-      "switchesHint": "Seuls ces deux réglages vivent dans la base de PR Cockpit et se modifient ici ; tout ce qui suit est le rapport du CLI lui-même, en lecture seule.",
+      "switchesHint": "PR Cockpit ne stocke qu’un réglage : Claude in Chrome pour les sessions Claude (aucun pour Codex). Tout ce qui suit est le rapport du CLI, en lecture seule.",
       "files": "Fichiers lus dans le contexte au démarrage",
       "filesHintClaude": "Fichiers sur disque que le CLI peut lire + les fichiers qu’il rapporte réellement en contexte (mémoire automatique et rules effectivement chargées incluses). « non chargé » ne concerne qu’un CLAUDE.md présent mais non lu ; une rule n’a de ligne que si elle est chargée — une rule à condition paths non utilisée n’apparaît pas. Le contenu des settings n’est jamais lu.",
       "filesHintCodex": "Fichiers sur disque que Codex peut lire + les fichiers d’instructions que l’app-server rapporte comme injectés et les couches de config en vigueur. Le protocole ne dit pas si le dossier memories est injecté.",

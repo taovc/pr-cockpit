@@ -24,7 +24,7 @@ export type VerifyVerdict = z.infer<typeof VerdictSchema>['verdict']
 
 export type VerifyFindingInput = { fid: string; severity: string; title: string; location: string | null; problem: string | null; detail: string | null }
 
-export type VerifyAgentOptions = Pick<ReviewOptionsSpec, 'mcp' | 'chrome' | 'projectDirName' | 'abort'> & {
+export type VerifyAgentOptions = Pick<ReviewOptionsSpec, 'projectDirName' | 'abort'> & {
   cwd: string
   repo: string
   prNumber: number
@@ -84,14 +84,14 @@ export async function runVerifyAgent(opts: VerifyAgentOptions): Promise<{ result
     const { raw, usage } = await runCodexReadonly({
       prompt: `${withContract(methodology)}\n\n---\n\n${buildVerifyPrompt(opts)}`,
       cwd: opts.cwd, model: opts.model, effort: opts.effort, serviceTier: opts.codexServiceTier,
-      outputSchema: VERIFY_JSON_SCHEMA, allowNetwork: false, mcp: opts.mcp, label: 'verify', onTool: opts.onTool,
+      outputSchema: VERIFY_JSON_SCHEMA, allowNetwork: false, label: 'verify', onTool: opts.onTool,
       onStop: (stop) => { if (opts.abort?.signal.aborted) stop(); else opts.abort?.signal.addEventListener('abort', stop, { once: true }) },
     })
     return { result: VerifyResultSchema.parse(JSON.parse(raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, ''))), costUsd: usage?.costUsd ?? 0, usage }
   }
   const stream = query({
     prompt: buildVerifyPrompt(opts),
-    options: buildReviewOptions({ cwd: opts.cwd, model: opts.model, effort: opts.effort, methodology: withContract(methodology), maxTurns: 40, mcp: opts.mcp, chrome: opts.chrome, projectDirName: opts.projectDirName, abort: opts.abort, outputSchema: jsonSchemaFor(VerifyResultSchema) }),
+    options: buildReviewOptions({ cwd: opts.cwd, model: opts.model, effort: opts.effort, methodology: withContract(methodology), maxTurns: 40, baseBranch: opts.defaultBranch, projectDirName: opts.projectDirName, abort: opts.abort, outputSchema: jsonSchemaFor(VerifyResultSchema) }),
   })
   const out = await consumeClaudeRun(stream, {
     model: opts.model,

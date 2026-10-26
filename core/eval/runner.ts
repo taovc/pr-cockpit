@@ -30,8 +30,6 @@ export type EvalOptions = {
   reposDir: string
   worktreeLocation?: string | null
   lang?: string
-  mcp?: boolean
-  chrome?: boolean
   projectDirName?: string
   onLog?: (line: string) => void
 }
@@ -148,7 +146,7 @@ async function runCase(o: EvalOptions, evalRunId: string, c: GoldenCase, log: (l
     log(`  reviewing (${o.provider} ${o.model || 'default'})`)
     const r = await selectReviewRunner(o.provider).runReview({
       cwd: wt.path, repo: o.golden.repo, prNumber: c.prNumber, branch: c.branch, defaultBranch, methodology: o.methodology,
-      model: o.model, effort: o.effort, codexServiceTier: o.codexServiceTier, lang: o.lang, mcp: o.mcp, chrome: o.chrome, projectDirName: o.projectDirName,
+      model: o.model, effort: o.effort, codexServiceTier: o.codexServiceTier, lang: o.lang, projectDirName: o.projectDirName,
       onTool: (n, i) => log(`    ${n} ${i}`),
     })
     recordRunUsage(db, schema, runId, r.usage)
@@ -168,7 +166,7 @@ async function runCase(o: EvalOptions, evalRunId: string, c: GoldenCase, log: (l
         const v = await runVerifyAgent({
           cwd: wt.path, repo: o.golden.repo, prNumber: c.prNumber, branch: c.branch, defaultBranch, provider: o.provider, model: o.model, effort: o.effort, codexServiceTier: o.codexServiceTier, lang: o.lang, methodology: o.methodology,
           findings: r.result.findings.map((f, i) => ({ fid: `F${i + 1}`, severity: f.severity, title: f.title, location: f.location || null, problem: f.problem || null, detail: f.detail || null })),
-          mcp: o.mcp, chrome: o.chrome, projectDirName: o.projectDirName, onTool: (n, i) => log(`    ${n} ${i}`),
+          projectDirName: o.projectDirName, onTool: (n, i) => log(`    ${n} ${i}`),
         })
         recordRunUsage(db, schema, vRun, v.usage)
         finishRun(db, schema, vRun, { status: 'done' })

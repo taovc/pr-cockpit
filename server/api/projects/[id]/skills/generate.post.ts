@@ -5,7 +5,6 @@ import { schema } from '~core/db/client'
 import { generateSkill } from '~core/agent/skillgen'
 import { usageOfError } from '~core/agent/claudeRun'
 import { generateSkillCodex } from '~core/agent/codexSkill'
-import { getAgentSettings } from '~core/agent/settings'
 import { projectDirNameFor } from '~core/host/options'
 import { resolveLang, type LangCode } from '~core/agent/lang'
 import { cockpitBus } from '~core/events'
@@ -96,7 +95,7 @@ export default defineEventHandler(async (event) => {
     emit('stage', t.stage(rc.provider, rc.model || t.defaultModel, rc.effort ? ' · ' + rc.effort : ''))
     const res = await runGenerate({
       cwd: project.localPath,
-      mcp: getAgentSettings(d, schema).reviewMcp, chrome: getAgentSettings(d, schema).chrome, projectDirName: projectDirNameFor(project.localPath),
+      projectDirName: projectDirNameFor(project.localPath),
       model: rc.model,
       effort: rc.effort,
       codexServiceTier: rc.codexServiceTier,

@@ -15,7 +15,6 @@ import { goldenFromReviews, loadGolden } from '../core/eval/golden'
 import { runEval } from '../core/eval/runner'
 import { renderReport } from '../core/eval/report'
 import { loadMethodology } from '../core/methodology'
-import { getAgentSettings } from '../core/agent/settings'
 import { projectDirNameFor } from '../core/host/options'
 import { stopCodexServer } from '../core/codex/appServer'
 import { precisionBySkillVersion } from '../core/metrics/queries'
@@ -124,7 +123,7 @@ for (const model of models) {
     db, schema, golden, provider, model, effort, codexServiceTier: provider === 'codex' && project.codexServiceTier === 'fast' ? 'fast' : null,
     methodology, skillVersionId, projectId: project.id, verify: !!flags.verify,
     localPath: project.localPath, reposDir, worktreeLocation, lang: str('lang') || 'en',
-    mcp: getAgentSettings(db, schema).reviewMcp, chrome: getAgentSettings(db, schema).chrome, projectDirName: projectDirNameFor(project.localPath), onLog: log,
+    projectDirName: projectDirNameFor(project.localPath), onLog: log,
   })
   const file = resolve(reportsDir, `${summary.startedAt.replace(/[:.]/g, '-')}-${golden.name}-${(model || 'default').replace(/[^a-z0-9.-]/gi, '_')}${flags.verify ? '-verify' : ''}.md`)
   writeFileSync(file, renderReport(summary))

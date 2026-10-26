@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { CanUseTool, HookCallback, Options } from '@anthropic-ai/claude-agent-sdk'
@@ -57,38 +58,34 @@ export type ReviewOptionsSpec = {
   effort?: string
   methodology: string // already wrapped by withContract()
   maxTurns: number
-  mcp?: boolean // let the review connect and call the user's MCP servers (agent-config switch; off = none connected)
-  chrome?: boolean // with mcp: also start Claude in Chrome (--chrome), like sessions do
   projectDirName?: string
   abort?: AbortController
   outputSchema?: Record<string, unknown> // JSON Schema the CLI validates the final message against (structured_output on the result)
+  baseBranch?: string // project instructions are read from origin/<baseBranch>; without it, from the files in cwd
 }
 
-// Review family: the user's configuration is loaded like the CLI, but the run is read-only by three independent layers
-// (see core/host/readonly.ts) and the operating contract is appended to Claude Code's own system prompt.
+// Review family: only the user's own configuration is loaded; the PR branch's CLAUDE.md and .claude/ (settings, env, skills,
+// agents) are not, since the author controls them. The base branch's CLAUDE.md / AGENTS.md are appended instead.
 export function buildReviewOptions(spec: ReviewOptionsSpec): Options {
   const bin = resolveClaudeExecutable()
   const env: Record<string, string | undefined> = { ...process.env }
   if (spec.projectDirName) env.CLAUDE_CODE_PROJECT_DIR_NAME = spec.projectDirName
-  const mcp = !!spec.mcp
-  // The review cwd is the PR branch worktree — attacker-controlled content. With MCP on the CLI would auto-approve and SPAWN
-  // servers from the branch's own .mcp.json before any tool call (verified against the bundled CLI), which none of the three
-  // read-only layers can see. A rejection beats every approval, so list them as disabled.
-  const projectMcp = mcp ? projectMcpServerNames(spec.cwd) : []
+  // No MCP in a review. The PR branch's own .mcp.json is also listed as disabled, in case strictMcpConfig ever stops
+  // covering it: the CLI would otherwise spawn those servers at init, unseen by the three read-only layers.
+  const projectMcp = projectMcpServerNames(spec.cwd)
   return {
     cwd: spec.cwd,
     ...(spec.model ? { model: spec.model } : {}),
     ...(spec.effort ? { effort: spec.effort as Options['effort'] } : {}),
-    systemPrompt: { type: 'preset', preset: 'claude_code', append: spec.methodology },
+    systemPrompt: { type: 'preset', preset: 'claude_code', append: withProjectRules(spec.methodology, projectRules(spec.cwd, spec.baseBranch)) },
+    settingSources: ['user'],
     permissionMode: 'default',
-    canUseTool: makeReviewCanUseTool(mcp),
-    hooks: { PreToolUse: [{ hooks: [makeReviewGuardHook(mcp)] }] },
+    canUseTool: makeReviewCanUseTool(),
+    hooks: { PreToolUse: [{ hooks: [makeReviewGuardHook()] }] },
     disallowedTools: REVIEW_DISALLOWED_TOOLS,
     settings: { permissions: { deny: REVIEW_DENY_RULES }, disableAllHooks: true, ...(projectMcp.length ? { disabledMcpjsonServers: projectMcp } : {}) },
-    // MCP off → do not even connect the configured servers (faster start, nothing to leak to); on → the CLI connects
-    // them like a session does, optionally with Claude in Chrome.
-    ...(mcp ? {} : { mcpServers: {}, strictMcpConfig: true }),
-    ...(mcp && spec.chrome ? { extraArgs: { chrome: null } } : {}),
+    mcpServers: {},
+    strictMcpConfig: true,
     maxTurns: spec.maxTurns,
     ...(REVIEW_MAX_BUDGET_USD > 0 ? { maxBudgetUsd: REVIEW_MAX_BUDGET_USD } : {}),
     ...(spec.outputSchema ? { outputFormat: { type: 'json_schema', schema: spec.outputSchema } } : {}),
@@ -96,6 +93,29 @@ export function buildReviewOptions(spec: ReviewOptionsSpec): Options {
     ...(bin ? { pathToClaudeCodeExecutable: bin } : {}),
     ...(spec.abort ? { abortController: spec.abort } : {}),
   }
+}
+
+const RULE_FILES = ['CLAUDE.md', 'AGENTS.md']
+const RULE_MAX = 60_000
+
+// The project's instruction files as the base branch has them (or as they sit in cwd when no base branch is known).
+export function projectRules(cwd: string, baseBranch?: string): Array<{ name: string; text: string }> {
+  const out: Array<{ name: string; text: string }> = []
+  for (const name of RULE_FILES) {
+    let text = ''
+    try {
+      text = baseBranch
+        ? execFileSync('git', ['-C', cwd, 'show', `origin/${baseBranch}:${name}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10_000 })
+        : existsSync(join(cwd, name)) ? readFileSync(join(cwd, name), 'utf8') : ''
+    } catch { /* not on that branch */ }
+    if (text.trim()) out.push({ name, text: text.slice(0, RULE_MAX) })
+  }
+  return out
+}
+
+export function withProjectRules(methodology: string, rules: Array<{ name: string; text: string }>): string {
+  if (!rules.length) return methodology
+  return `${methodology}\n\n---\n\nProject instructions from the base branch (the PR branch's own CLAUDE.md, AGENTS.md and .claude/ are not loaded):\n\n${rules.map((r) => `## ${r.name}\n\n${r.text.trim()}`).join('\n\n')}`
 }
 
 export function projectMcpServerNames(cwd: string): string[] {

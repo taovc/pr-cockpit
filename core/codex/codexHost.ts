@@ -1,5 +1,3 @@
-import { existsSync } from 'node:fs'
-import { join } from 'node:path'
 import { nanoid } from 'nanoid'
 import { eq } from 'drizzle-orm'
 import type { PermissionMode, PermissionResult } from '@anthropic-ai/claude-agent-sdk'
@@ -115,7 +113,7 @@ class CodexHost implements SessionHost {
   private async create(spec: RunSpec): Promise<LiveThread> {
     const server = await getCodexServer()
     const policy = policyFor(spec)
-    const unattended = spec.kind === 'review' || spec.kind === 'helper' // read-only kinds: MCP only when the agent-config switch allows it — and never when the worktree ships its own .codex/config.toml (a PR could declare servers there)
+    const unattended = spec.kind === 'review' || spec.kind === 'helper' // read-only kinds never connect MCP
     const effort = await effortFor(spec)
     const instructions = developerInstructions(spec)
     const base: Partial<ThreadStartParams> = {
@@ -124,7 +122,7 @@ class CodexHost implements SessionHost {
       ...(spec.codexServiceTier ? { serviceTier: spec.codexServiceTier } : {}),
       approvalPolicy: policy.approval,
       sandbox: policy.sandboxMode,
-      ...(effort || unattended ? { config: { ...(effort ? { model_reasoning_effort: effort } : {}), ...(unattended && (!spec.mcp || existsSync(join(spec.cwd, '.codex', 'config.toml'))) ? { mcp_servers: {} } : {}) } } : {}),
+      ...(effort || unattended ? { config: { ...(effort ? { model_reasoning_effort: effort } : {}), ...(unattended ? { mcp_servers: {} } : {}) } } : {}),
       ...(instructions ? { developerInstructions: instructions } : {}),
     }
     const notes: string[] = []
@@ -197,15 +195,12 @@ class CodexHost implements SessionHost {
   }
 
   private dispatch(live: LiveThread, e: RunEvent): void {
-    // Read-only kinds with MCP off: an MCP tool call is a policy breach the approval flow never sees → fail the turn before it goes further.
+    // Read-only kinds: an MCP tool call is a policy breach the approval flow never sees → fail the turn before it goes further.
     if (e.t === 'tool_use' && e.name.startsWith('mcp__') && live.policy.autoDecide && live.turn) {
-      const server = e.name.split('__')[1] ?? ''
-      if (!live.spec.mcp) {
-        const message = `MCP server "${server}" is not allowed in a read-only run (tool ${e.name})`
-        live.turn.error = message
-        live.emit({ t: 'permission_denied', toolName: e.name, message })
-        void this.rpcInterrupt(live)
-      }
+      const message = `MCP server "${e.name.split('__')[1] ?? ''}" is not allowed in a read-only run (tool ${e.name})`
+      live.turn.error = message
+      live.emit({ t: 'permission_denied', toolName: e.name, message })
+      void this.rpcInterrupt(live)
     }
     switch (e.t) {
       case 'text_delta':
