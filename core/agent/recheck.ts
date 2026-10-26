@@ -5,7 +5,7 @@ import { buildReviewOptions } from '../host/options'
 import type { ReviewHostOptions } from './review'
 import { jsonSchemaFor, parseStructured } from './structured'
 import { outputLangClause, resolveLang } from './lang'
-import { usageFromClaudeResult } from './usage'
+import { consumeClaudeRun, settleClaudeRun } from './claudeRun'
 import { HISTORY_FILE, type RoundIntent } from './reviewHistory'
 import type { ProviderUsage } from '../runs/types'
 
@@ -168,32 +168,16 @@ export async function runRecheckAgent(opts: RecheckAgentOptions): Promise<{ resu
     prompt,
     options: buildReviewOptions({ cwd: opts.cwd, model: opts.model, effort: opts.effort, methodology: withContract(opts.methodology, RECHECK_PROCEDURE), maxTurns: RECHECK_MAX_TURNS, mcp: opts.mcp, chrome: opts.chrome, projectDirName: opts.projectDirName, abort: opts.abort, outputSchema: RECHECK_JSON_SCHEMA }),
   })
-  let text = ''
-  let costUsd = 0
-  let usage: ProviderUsage | null = null
-  let structured: unknown = null
   let historyRead = false
-  for await (const msg of stream) {
-    if (msg.type === 'assistant') {
-      const content = (msg as any).message?.content
-      if (Array.isArray(content)) {
-        for (const b of content) {
-          if (b.type === 'text') text += b.text
-          else if (b.type === 'tool_use') {
-            if (touchesHistory(b.input, opts.historyPath)) historyRead = true
-            opts.onTool?.(b.name, String(b.input?.command || b.input?.file_path || b.input?.pattern || '').slice(0, 80))
-          }
-        }
-      }
-    } else if (msg.type === 'result') {
-      const c = (msg as any).total_cost_usd
-      if (typeof c === 'number') costUsd += c
-      usage = usageFromClaudeResult(msg, opts.model)
-      structured = (msg as any).structured_output ?? null
-    }
-  }
-  const result = parseStructured(RecheckSchema, structured, text)
-  return { result, costUsd, usage, historyRead }
+  const out = await consumeClaudeRun(stream, {
+    model: opts.model,
+    onToolUse: (b) => {
+      if (touchesHistory(b.input, opts.historyPath)) historyRead = true
+      opts.onTool?.(b.name, String(b.input?.command || b.input?.file_path || b.input?.pattern || '').slice(0, 80))
+    },
+  })
+  const result = settleClaudeRun(out, () => parseStructured(RecheckSchema, out.structured, out.text))
+  return { result, costUsd: out.costUsd, usage: out.usage, historyRead }
 }
 
 // Whether a tool call went at the prepared history. Matched on the full path only: the bare file name appears in the

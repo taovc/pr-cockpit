@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm'
 import { prepareWorktree } from '../git/worktree'
 import { selectReviewRunner } from '../pipeline'
 import { runVerifyAgent, verdictMap, type VerifyVerdict } from '../agent/verify'
+import { usageOfError } from '../agent/claudeRun'
 import { createRun, finishRun, recordRunUsage } from '../runs/store'
 import { judge, prf, type JudgedFinding } from './judge'
 import type { Golden, GoldenCase } from './golden'
@@ -183,6 +184,7 @@ async function runCase(o: EvalOptions, evalRunId: string, c: GoldenCase, log: (l
         base.verified = { tp: keptTp, fp: kept.length - keptTp, fn: base.fn + droppedTp }
         log(`  after verify → TP ${base.verified.tp} · FP ${base.verified.fp} · FN ${base.verified.fn}`)
       } catch (e) {
+        recordRunUsage(db, schema, vRun, usageOfError(e))
         finishRun(db, schema, vRun, { status: 'error', error: (e as Error).message })
         log(`  verify failed: ${(e as Error).message}`)
       }
@@ -190,7 +192,7 @@ async function runCase(o: EvalOptions, evalRunId: string, c: GoldenCase, log: (l
   } catch (e) {
     base.status = 'error'
     base.error = (e as Error).message
-    if (runId) finishRun(db, schema, runId, { status: 'error', error: base.error })
+    if (runId) { recordRunUsage(db, schema, runId, usageOfError(e)); finishRun(db, schema, runId, { status: 'error', error: base.error }) }
     log(`  error: ${base.error}`)
   } finally {
     if (wt) await wt.cleanup().catch(() => {})

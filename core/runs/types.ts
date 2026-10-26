@@ -25,6 +25,7 @@ export type ProviderUsage = {
   durationMs?: number
   numTurns?: number
   sessionId?: string | null // native session / thread id observed on the stream
+  cliVersion?: string | null // Claude Code CLI version that ran it (from system/init)
 }
 
 export function emptyUsage(): ProviderUsage {

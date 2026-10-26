@@ -1,5 +1,6 @@
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import { buildHelperOptions } from './options'
+import { claudeResultFailure } from '../agent/usage'
 import { runCodexText } from '../codex/oneshot'
 import type { ReviewProvider } from '../agent/runners'
 
@@ -16,7 +17,8 @@ export async function runHelperText(opts: { prompt: string; cwd: string; model?:
         const content = msg.message?.content
         if (Array.isArray(content)) for (const b of content) if (b.type === 'text' && typeof b.text === 'string') text += b.text
       } else if (msg.type === 'result') {
-        if (msg.is_error) throw new Error(typeof msg.result === 'string' ? msg.result : (Array.isArray(msg.errors) ? msg.errors.join('\n') : 'claude helper failed'))
+        const failure = claudeResultFailure(msg) ?? (msg.is_error ? (typeof msg.result === 'string' && msg.result) || `claude helper ended with ${msg.subtype}` : null)
+        if (failure) throw new Error(failure)
         if (typeof msg.result === 'string') result = msg.result
       }
     }

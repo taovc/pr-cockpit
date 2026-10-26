@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { eq } from 'drizzle-orm'
 import { schema } from '~core/db/client'
 import { generateSkill } from '~core/agent/skillgen'
+import { usageOfError } from '~core/agent/claudeRun'
 import { generateSkillCodex } from '~core/agent/codexSkill'
 import { getAgentSettings } from '~core/agent/settings'
 import { projectDirNameFor } from '~core/host/options'
@@ -109,6 +110,7 @@ export default defineEventHandler(async (event) => {
     finishRun(d, schema, runId, { status: 'done' })
     emit('done', t.done(toolN, formatUsageLabel(res.usage, res.costUsd)))
   } catch (e) {
+    recordRunUsage(d, schema, runId, usageOfError(e))
     finishRun(d, schema, runId, { status: 'error', error: (e as Error).message })
     emit('error', (e as Error).message)
     throw createError({ statusCode: 502, statusMessage: (e as Error).message })
