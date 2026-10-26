@@ -473,6 +473,10 @@
     },
     "previewSkipped": "{count} ignoré(s)",
     "skippedTitle": "Non publié selon le statut de re-revue ({count})",
+    "langWarnTitle": "{count} élément(s) ne sont pas revenus en anglais — vérifiez avant de publier",
+    "langWarnFailed": "échec de la traduction, retombe sur le titre d'origine",
+    "langWarnNotesFailed": "traduction échouée ; ce préambule ne sera pas publié",
+    "langWarnLeak": "encore dans la langue source",
     "skipReason": {
       "repliedNoNote": "réponse seule · pas de note",
       "retracted": "retiré"
@@ -821,6 +825,7 @@
     "automationPaused": "Tour arrêté — l’automatisation de cette PR est en pause (vous avez repris la main)",
     "queued": "en file — démarre à la fin du tour en cours",
     "cancelQueued": "retirer",
+    "turnSteps": "{n} étapes",
     "queue": "Mettre en file",
     "rewind": "restaurer les fichiers",
     "rewindHint": "Remettre les fichiers de l'espace de travail dans leur état d'avant ce message (la conversation est conservée)",

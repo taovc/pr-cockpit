@@ -10,8 +10,8 @@ import { ensureSkillVersion } from '~core/skillVersions'
 // - claude projects: model = project.model || ANTHROPIC_MODEL (used for first review / recheck /
 //   feedback recheck / Skill / chat alike)
 // - codex projects: model = project.model || CODEX_MODEL (empty = the Codex SDK default)
-// translateModel (the mechanical translation when posting comments): claude uses the fast model
-// TRANSLATE_MODEL; codex still uses the main codex model (no mixing).
+// translateModel / translateEffort (posting rewrites and one-shot helpers): the project's own model at low effort;
+// TRANSLATE_MODEL pins a claude model, which codex projects ignore.
 export function resolveReviewConfig(d: any, project: any) {
   const cfg = useRuntimeConfig()
   const provider: ReviewProvider = project.provider === 'codex' ? 'codex' : 'claude'
@@ -33,7 +33,7 @@ export function resolveReviewConfig(d: any, project: any) {
     provider === 'codex'
       ? ((project.model || cfg.codexModel || '') as string)
       : ((project.model || cfg.anthropicModel) as string)
-  const translateModel = provider === 'codex' ? model : (cfg.translateModel as string)
+  const translateModel = provider === 'codex' ? model : ((cfg.translateModel as string) || model)
   const codexServiceTier = provider === 'codex' && project.codexServiceTier === 'fast' ? 'fast' : null
   return {
     methodology,
@@ -42,7 +42,13 @@ export function resolveReviewConfig(d: any, project: any) {
     provider,
     model,
     translateModel,
+    translateEffort: 'low',
     effort: (project.effort || '') as string,
     codexServiceTier,
   }
+}
+
+// The provider/model one-shot helpers (commit message, feature title) run on.
+export function helperTargetOf(rc: ReturnType<typeof resolveReviewConfig>) {
+  return { provider: rc.provider, model: rc.translateModel, codexServiceTier: rc.codexServiceTier }
 }

@@ -207,7 +207,7 @@ pnpm dev                  # 默认 http://localhost:3001
 | `CODEX_SERVICE_TIER` |  | 可选，Codex/OpenAI 全局默认速度档；项目配置页的 Fast 开关会按项目覆盖它。取消全局 fast 就留空/删除，若 `~/.codex/config.toml` 也设置了 `service_tier`，那里也要删除 |
 | `CODEX_PROJECT_DOC_FALLBACK_FILENAMES` | `CLAUDE.md,.claude/CLAUDE.md` | 无 `AGENTS.md` 时 Codex 读取的项目说明 fallback |
 | `OPENAI_API_KEY` | `sk-...` | Codex 本地登录不可用时可用 |
-| `TRANSLATE_MODEL` | `sonnet` | 发 GitHub 评论时转成英文用的轻量模型 |
+| `TRANSLATE_MODEL` | （空） | 发 GitHub 评论时转成英文、生成提交信息和标题用的模型；留空 = 用项目自己的模型、低 effort（只对 Claude 项目生效） |
 | `ANTHROPIC_API_KEY` | `sk-ant-...` | Claude 路径可选；本地登录不可用时使用 |
 | `DEFAULT_REPO` | `owner/repo` | 可选，粘纯数字 PR 时的默认仓库 |
 | `DB_PATH` | `./data/cockpit.db` | SQLite 路径 |
