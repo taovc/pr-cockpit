@@ -423,6 +423,14 @@ function skipReasonLabel(s: string) { const k = SKIP_REASON[s]; return k ? t(k) 
             <div class="text-dimmed mb-1">{{ $t('review.skippedTitle', { count: preview.skipped.length }) }}</div>
             <div v-for="s in preview.skipped" :key="s.fid" class="text-toned">· {{ s.fid }} {{ s.title }} <span class="text-dimmed">— {{ skipReasonLabel(s.reason) }}</span></div>
           </div>
+          <!-- What goes on the PR has to be English: say which items came back untranslated (or failed) instead of publishing them quietly -->
+          <div v-if="preview.warnings?.length" class="text-xs mb-2 border border-warning rounded p-2 bg-warning/10">
+            <div class="text-warning mb-1">{{ $t('review.langWarnTitle', { count: preview.warnings.length }) }}</div>
+            <div v-for="w in preview.warnings" :key="w.fid + w.kind" class="text-toned">
+              · {{ w.fid }} <span class="text-dimmed">— {{ w.kind === 'failed' ? $t('review.langWarnFailed') : $t('review.langWarnLeak') }}</span>
+              <span v-if="w.sample" class="text-dimmed">: {{ w.sample }}</span>
+            </div>
+          </div>
           <pre class="text-xs text-toned whitespace-pre-wrap font-sans max-h-60 overflow-y-auto">{{ preview.body }}</pre>
           <div v-for="(c, i) in preview.comments" :key="i" class="text-xs mt-2 border-t border-default pt-2">
             <span class="font-mono text-dimmed">{{ c.path }}:{{ c.line }}</span>

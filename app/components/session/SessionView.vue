@@ -56,6 +56,12 @@ function addCard(kind: string, data: any, turnId: string | null, ts = new Date()
   cards.value.push({ key: `${turnId ?? '-'}:${++cardSeq}`, kind, data, ts, parent: data?.parent ?? null, turnId } as StreamEvent & { turnId: string | null })
 }
 function cardsFor(turnId: string): StreamEvent[] { return cards.value.filter((c) => (c as any).turnId === turnId) }
+// The trace of a turn (tool calls, thinking, subagents) is worth watching while it runs and noise once it is done: it
+// stays open while the turn streams and collapses when it ends; a click on the summary line pins either state per turn.
+const cardsOpen = reactive<Record<string, boolean>>({})
+function cardsShown(turn: Turn): boolean { return cardsOpen[turn.id] ?? turn.status === 'streaming' }
+function toggleCards(turn: Turn) { cardsOpen[turn.id] = !cardsShown(turn) }
+function cardsFailed(turnId: string): number { return cardsFor(turnId).filter((c) => c.result?.isError || c.kind === 'error' || c.kind === 'permission_denied').length }
 const streamingTurnId = computed(() => { const ts = data.value?.turns ?? []; const last = ts[ts.length - 1]; return last && last.role === 'assistant' && last.status === 'streaming' ? last.id : null })
 const busy = ref('') // '' | 'delete' | 'rmwt' | 'upload' | 'send' | 'rewind'
 const pendingCwd = ref<string | null>(null)
@@ -181,7 +187,7 @@ function openSSE() {
 }
 function closeSSE() { es?.close(); es = null }
 let liveTurnId: string | null = null // the assistant turn a live event belongs to before the detail refresh catches up
-function resetLocal() { data.value = null; liveAssistant.value = ''; logLines.value = []; cards.value = []; liveTurnId = null; otherAnswer.value = ''; confirming.value = ''; view.value = 'chat'; host.reset() }
+function resetLocal() { data.value = null; liveAssistant.value = ''; logLines.value = []; cards.value = []; for (const k of Object.keys(cardsOpen)) delete cardsOpen[k]; liveTurnId = null; otherAnswer.value = ''; confirming.value = ''; view.value = 'chat'; host.reset() }
 
 // A PR tab opened without a known run id (deep link, filtered list): the PR's existing session is looked up so the
 // conversation continues instead of showing an empty panel.
@@ -530,7 +536,14 @@ const canOpenIde = computed(() => !!data.value?.workspace.exists)
           </div>
           <!-- What the agent did during this turn: tool calls (with results), thinking, subagents, compaction, denials -->
           <div v-if="turn.role === 'assistant' && cardsFor(turn.id).length" class="mt-1.5 space-y-1 max-w-[92%]">
-            <RunEventCard v-for="c in cardsFor(turn.id)" :key="c.key" :ev="c" />
+            <button class="text-[11px] text-dimmed hover:text-highlighted flex items-center gap-1.5" @click="toggleCards(turn)">
+              <span class="shrink-0">{{ cardsShown(turn) ? '▾' : '▸' }}</span>
+              <span>{{ $t('session.turnSteps', { n: cardsFor(turn.id).length }) }}</span>
+              <span v-if="cardsFailed(turn.id)" class="text-error">· {{ cardsFailed(turn.id) }} ✗</span>
+            </button>
+            <div v-if="cardsShown(turn)" class="space-y-1">
+              <RunEventCard v-for="c in cardsFor(turn.id)" :key="c.key" :ev="c" />
+            </div>
           </div>
         </div>
 

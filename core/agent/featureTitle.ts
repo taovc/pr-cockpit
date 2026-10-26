@@ -5,9 +5,9 @@ import type { ReviewProvider } from './runners'
 
 // Generate a short "having understood the requirement" title from the raw requirement (which may contain an issue link + the issue body fetched by the backend); used as the feature list/drawer title.
 // One sentence from a cheap/fast model, following the project's provider (never mixed, same as assembleReview's translate):
-//   - claude → `claude --print`, model = rc.translateModel (defaults to the fast TRANSLATE_MODEL)
+//   - claude → `claude --print`, model = rc.translateModel (the project's own model unless TRANSLATE_MODEL pins one)
 //   - codex  → runCodexText (read-only sandbox, no network), model = the codex main model
-// model is passed in from resolveReviewConfig.translateModel (config-driven, no hardcoded model name) → swapping/renaming a model only touches env/config.
+// model is passed in from resolveReviewConfig.translateModel (config-driven, no hardcoded model name) → swapping/renaming a model only touches the project config or env.
 // Returns an empty string on failure/timeout (the caller falls back to the truncated raw description). The title uses the working language (a UI label for the user, not the public PR title).
 export async function genFeatureTitle(opts: {
   provider: ReviewProvider

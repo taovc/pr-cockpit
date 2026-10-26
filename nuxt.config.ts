@@ -39,8 +39,9 @@ export default defineNuxtConfig({
     anthropicModel: process.env.ANTHROPIC_MODEL || 'sonnet',
     codexModel: process.env.CODEX_MODEL || '',
     recheckModel: process.env.RECHECK_MODEL || process.env.ANTHROPIC_MODEL || 'sonnet',
-    // Translating Chinese into English when posting comments — mechanical work, use a fast model instead of the review's heavy model/effort
-    translateModel: process.env.TRANSLATE_MODEL || 'sonnet',
+    // Translating Chinese into English when posting comments. Empty (the default) = follow the project's own configured
+    // model, run at a low reasoning effort instead of the review's; set it to pin a specific fast model instead.
+    translateModel: process.env.TRANSLATE_MODEL || '',
     // Default effort for the (global) assistant: it belongs to no project, so there is no project.effort to read; this central default is the backstop (overridable per session)
     globalEffort: process.env.GLOBAL_EFFORT || 'high',
     anthropicApiKey: process.env.ANTHROPIC_API_KEY || '',

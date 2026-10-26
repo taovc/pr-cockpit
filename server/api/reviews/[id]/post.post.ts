@@ -85,6 +85,7 @@ export default defineEventHandler(async (event) => {
         sha: review.headSha || '',
         provider: rc.provider,
         model: rc.translateModel,
+        effort: rc.translateEffort,
         codexServiceTier: rc.codexServiceTier || '',
         f: findings.map((f) => [f.fid, f.severity, f.title, f.problem, f.detail, f.fix, f.notes, f.location, f.introducedByPr, f.recheck?.status || '', f.recheck?.text || '']),
       }))
@@ -96,10 +97,11 @@ export default defineEventHandler(async (event) => {
       assembled = JSON.parse(review.previewJson!) // cache hit, no re-translation
     } else {
       const { diff } = await fetchPrDiff(project.repo, review.prNumber)
-      // Translation follows the project's provider (never mixed): claude uses the fast model TRANSLATE_MODEL; codex uses the codex main model.
+      // Translation follows the project's provider (never mixed) and its configured model, at a low reasoning effort.
       assembled = await assembleReview({
         provider: rc.provider,
         model: rc.translateModel,
+        effort: rc.translateEffort,
         codexServiceTier: rc.codexServiceTier,
         cwd: project.localPath || undefined,
         findings,
