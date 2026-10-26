@@ -3,7 +3,7 @@ import { withContract } from './guard'
 import { buildReviewOptions } from '../host/options'
 import type { ReviewHostOptions } from './review'
 import { langName } from './lang'
-import { usageFromClaudeResult } from './usage'
+import { claudeCliVersionOf, claudeResultFailure, usageFromClaudeResult } from './usage'
 import type { ProviderUsage } from '../runs/types'
 
 export const SKILL_SYSTEM = `You are a senior architect and code review lead. Your task is to tailor a "code review methodology" (review skill) to one specific project, to be used later as the system prompt when an AI reviews that project's PRs.`
@@ -79,7 +79,10 @@ export async function generateSkill(opts: SkillGenOptions): Promise<{ content: s
   let text = ''
   let costUsd = 0
   let usage: ProviderUsage | null = null
+  let cliVersion: string | null = null
+  let failure: string | null = null
   for await (const msg of stream) {
+    cliVersion = claudeCliVersionOf(msg) ?? cliVersion
     if (msg.type === 'assistant') {
       const content = (msg as any).message?.content
       if (Array.isArray(content)) {
@@ -91,8 +94,10 @@ export async function generateSkill(opts: SkillGenOptions): Promise<{ content: s
     } else if (msg.type === 'result') {
       const c = (msg as any).total_cost_usd
       if (typeof c === 'number') costUsd += c
-      usage = usageFromClaudeResult(msg, opts.model)
+      usage = usageFromClaudeResult(msg, opts.model, cliVersion)
+      failure = claudeResultFailure(msg)
     }
   }
+  if (failure) throw new Error(failure)
   return { content: cleanSkillContent(text), costUsd, usage }
 }

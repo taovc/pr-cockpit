@@ -10,7 +10,7 @@ const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v)
 // - usage + total_cost_usd are the fallback when modelUsage is absent (older CLIs).
 // Both are cumulative per query() lifetime; every entry point today runs one process per execution, so a
 // result is this execution's delta. (The streaming-input host will difference consecutive results itself.)
-export function usageFromClaudeResult(msg: any, fallbackModel?: string): ProviderUsage | null {
+export function usageFromClaudeResult(msg: any, fallbackModel?: string, cliVersion?: string | null): ProviderUsage | null {
   if (!msg || msg.type !== 'result') return null
   const models: ModelUsageSnapshot[] = []
   const mu = msg.modelUsage
@@ -46,7 +46,24 @@ export function usageFromClaudeResult(msg: any, fallbackModel?: string): Provide
     durationMs: num(msg.duration_ms) || undefined,
     numTurns: num(msg.num_turns) || undefined,
     sessionId: typeof msg.session_id === 'string' ? msg.session_id : null,
+    ...(cliVersion ? { cliVersion } : {}),
   }
+}
+
+// The CLI version announced by the `system/init` message, or null for any other message.
+export function claudeCliVersionOf(msg: any): string | null {
+  return msg?.type === 'system' && msg.subtype === 'init' && typeof msg.claude_code_version === 'string' ? msg.claude_code_version : null
+}
+
+// Why a result message is not a real answer, or null when it is. Some failures arrive as subtype "success" with
+// is_error false: an unsupported model gives zero turns and the API error as the result text.
+export function claudeResultFailure(msg: any): string | null {
+  if (!msg || msg.type !== 'result') return null
+  const text = typeof msg.result === 'string' ? msg.result.trim() : ''
+  if (msg.is_error || msg.subtype !== 'success') return text || (Array.isArray(msg.errors) && msg.errors.join('\n')) || `Claude run ended with ${msg.subtype}`
+  if (/^API Error\b/.test(text)) return text
+  if (msg.num_turns === 0) return text || 'Claude run ended without a single turn'
+  return null
 }
 
 // Codex SDK `turn.completed` usage (tokens only; USD estimated from the local rate table or null).

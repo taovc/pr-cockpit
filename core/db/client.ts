@@ -158,6 +158,7 @@ function ensureColumns(sqlite: Database.Database) {
     ['runs', 'upload_state', "TEXT NOT NULL DEFAULT 'none'"],
     ['runs', 'busy_action', 'TEXT'],
     ['runs', 'forked_from', 'TEXT'],
+    ['runs', 'cli_version', 'TEXT'],
     ['run_turns', 'message_uuid', 'TEXT'],
   ]
   for (const [table, col, type] of adds) {

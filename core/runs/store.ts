@@ -106,6 +106,7 @@ export function recordRunUsage(db: any, schema: any, runId: string, usage: Provi
       // A run that mixes reported and estimated numbers is, as a whole, an estimate.
       patch.costSource = cur.costSource === 'estimated' || source === 'estimated' ? 'estimated' : 'reported'
     }
+    if (usage.cliVersion) patch.cliVersion = usage.cliVersion
     if (usage.sessionId) {
       if (cur.provider === 'codex') patch.codexThreadId = usage.sessionId
       else patch.claudeSessionId = usage.sessionId

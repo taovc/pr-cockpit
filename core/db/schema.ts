@@ -436,6 +436,7 @@ export const runs = sqliteTable('runs', {
   skillVersionId: text('skill_version_id'),
   claudeSessionId: text('claude_session_id'),
   codexThreadId: text('codex_thread_id'),
+  cliVersion: text('cli_version'), // Claude Code CLI version (review family)
   // Session host state: the permission mode the session runs in, the dangerous-command switch, network access (Codex) and per-run "always allow" rules (JSON).
   permissionMode: text('permission_mode'),
   allowDanger: integer('allow_danger', { mode: 'boolean' }).notNull().default(false),

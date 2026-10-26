@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { CanUseTool, HookCallback, Options } from '@anthropic-ai/claude-agent-sdk'
-import { resolveClaudeExecutable } from '../agent/claude-bin'
+import { resolveClaudeExecutable, resolvePinnedClaudeExecutable } from '../agent/claude-bin'
 import type { RunSpec } from './types'
 import { makeReviewCanUseTool, makeReviewGuardHook, REVIEW_DENY_RULES, REVIEW_DISALLOWED_TOOLS } from './readonly'
 
@@ -67,7 +67,7 @@ export type ReviewOptionsSpec = {
 // Review family: the user's configuration is loaded like the CLI, but the run is read-only by three independent layers
 // (see core/host/readonly.ts) and the operating contract is appended to Claude Code's own system prompt.
 export function buildReviewOptions(spec: ReviewOptionsSpec): Options {
-  const bin = resolveClaudeExecutable()
+  const bin = resolvePinnedClaudeExecutable()
   const env: Record<string, string | undefined> = { ...process.env }
   if (spec.projectDirName) env.CLAUDE_CODE_PROJECT_DIR_NAME = spec.projectDirName
   const mcp = !!spec.mcp

@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module'
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 
@@ -53,4 +53,37 @@ export function resolveClaudeExecutable(): string | undefined {
   const found = fromEnv() ?? fromSdk() ?? fromPath()
   cached = found ?? null
   return found
+}
+
+// The CLI version bundled with the pinned SDK; a test keeps it in step with package.json.
+export const EXPECTED_CLAUDE_CODE_VERSION = '2.1.310'
+
+// The production bundle has no copy of the platform package, so look it up by file in the project's node_modules.
+export function fromVendored(): string | undefined {
+  const key = `${process.platform}-${process.arch}`
+  const pkg = `claude-agent-sdk-${key}`
+  const nm = path.join(process.cwd(), 'node_modules')
+  const out: string[] = []
+  try {
+    const entries = readdirSync(path.join(nm, '.pnpm'))
+      .filter((e) => e.startsWith(`@anthropic-ai+${pkg}@`))
+      .sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }))
+    for (const e of entries) out.push(path.join(nm, '.pnpm', e, 'node_modules', '@anthropic-ai', pkg, 'claude'))
+  } catch { /* not a pnpm layout */ }
+  out.push(path.join(nm, '@anthropic-ai', pkg, 'claude'))
+  return out.find((p) => existsSync(p))
+}
+
+let pinned: { path: string | undefined; source: 'env' | 'vendored' | 'path' | null } | undefined
+
+// Review family only: the SDK's bundled CLI, so a review's engine changes only when the dependency is bumped.
+// The user's PATH CLI auto-updates; it is used only when no bundled copy exists, and logged as unpinned.
+export function resolvePinnedClaudeExecutable(): string | undefined {
+  if (pinned) return pinned.path
+  const env = fromEnv()
+  const vendored = env ? undefined : (fromSdk() ?? fromVendored())
+  const fallback = env || vendored ? undefined : fromPath()
+  pinned = { path: env ?? vendored ?? fallback, source: env ? 'env' : vendored ? 'vendored' : fallback ? 'path' : null }
+  if (pinned.source === 'path') console.warn(`[claude-bin] bundled Claude Code CLI not found; reviews fall back to the unpinned ${fallback}`)
+  return pinned.path
 }

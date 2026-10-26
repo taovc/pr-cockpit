@@ -5,7 +5,7 @@ import { buildReviewOptions } from '../host/options'
 import type { ReviewHostOptions } from './review'
 import { jsonSchemaFor, parseStructured } from './structured'
 import { outputLangClause, resolveLang } from './lang'
-import { usageFromClaudeResult } from './usage'
+import { claudeCliVersionOf, claudeResultFailure, usageFromClaudeResult } from './usage'
 import { HISTORY_FILE, type RoundIntent } from './reviewHistory'
 import type { ProviderUsage } from '../runs/types'
 
@@ -173,7 +173,10 @@ export async function runRecheckAgent(opts: RecheckAgentOptions): Promise<{ resu
   let usage: ProviderUsage | null = null
   let structured: unknown = null
   let historyRead = false
+  let cliVersion: string | null = null
+  let failure: string | null = null
   for await (const msg of stream) {
+    cliVersion = claudeCliVersionOf(msg) ?? cliVersion
     if (msg.type === 'assistant') {
       const content = (msg as any).message?.content
       if (Array.isArray(content)) {
@@ -188,10 +191,12 @@ export async function runRecheckAgent(opts: RecheckAgentOptions): Promise<{ resu
     } else if (msg.type === 'result') {
       const c = (msg as any).total_cost_usd
       if (typeof c === 'number') costUsd += c
-      usage = usageFromClaudeResult(msg, opts.model)
+      usage = usageFromClaudeResult(msg, opts.model, cliVersion)
+      failure = claudeResultFailure(msg)
       structured = (msg as any).structured_output ?? null
     }
   }
+  if (failure) throw new Error(failure)
   const result = parseStructured(RecheckSchema, structured, text)
   return { result, costUsd, usage, historyRead }
 }

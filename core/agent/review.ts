@@ -5,7 +5,7 @@ import { buildReviewOptions, type ReviewOptionsSpec } from '../host/options'
 import { jsonSchemaFor, parseStructured } from './structured'
 import { outputLangClause, resolveLang } from './lang'
 import { REVIEW_SECTIONS } from './reviewSections'
-import { usageFromClaudeResult } from './usage'
+import { claudeCliVersionOf, claudeResultFailure, usageFromClaudeResult } from './usage'
 import type { ProviderUsage } from '../runs/types'
 
 export const FindingSchema = z.object({
@@ -103,7 +103,10 @@ export async function runReviewAgent(opts: ReviewAgentOptions): Promise<{ result
   let costUsd = 0
   let usage: ProviderUsage | null = null
   let structured: unknown = null
+  let cliVersion: string | null = null
+  let failure: string | null = null
   for await (const msg of stream) {
+    cliVersion = claudeCliVersionOf(msg) ?? cliVersion
     if (msg.type === 'assistant') {
       const content = (msg as any).message?.content
       if (Array.isArray(content)) {
@@ -121,11 +124,13 @@ export async function runReviewAgent(opts: ReviewAgentOptions): Promise<{ result
     } else if (msg.type === 'result') {
       const c = (msg as any).total_cost_usd
       if (typeof c === 'number') costUsd += c
-      usage = usageFromClaudeResult(msg, opts.model) // tokens / per-model cost / duration for the run record
+      usage = usageFromClaudeResult(msg, opts.model, cliVersion) // tokens / per-model cost / duration for the run record
+      failure = claudeResultFailure(msg)
       structured = (msg as any).structured_output ?? null
     }
   }
 
+  if (failure) throw new Error(failure)
   const parsed = parseStructured(ReviewResultSchema, structured, text)
   return { result: parsed, costUsd, raw: text, usage }
 }

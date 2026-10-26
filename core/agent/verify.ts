@@ -3,7 +3,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk'
 import { buildReviewOptions, type ReviewOptionsSpec } from '../host/options'
 import { withContract } from './guard'
 import { jsonSchemaFor, parseStructured } from './structured'
-import { usageFromClaudeResult } from './usage'
+import { claudeCliVersionOf, claudeResultFailure, usageFromClaudeResult } from './usage'
 import { resolveLang, outputLangClause } from './lang'
 import { runCodexReadonly } from '../codex/oneshot'
 import type { ProviderUsage } from '../runs/types'
@@ -97,7 +97,10 @@ export async function runVerifyAgent(opts: VerifyAgentOptions): Promise<{ result
   let costUsd = 0
   let usage: ProviderUsage | null = null
   let structured: unknown = null
+  let cliVersion: string | null = null
+  let failure: string | null = null
   for await (const msg of stream) {
+    cliVersion = claudeCliVersionOf(msg) ?? cliVersion
     if (msg.type === 'assistant') {
       const content = (msg as any).message?.content
       if (Array.isArray(content)) {
@@ -109,10 +112,12 @@ export async function runVerifyAgent(opts: VerifyAgentOptions): Promise<{ result
     } else if (msg.type === 'result') {
       const c = (msg as any).total_cost_usd
       if (typeof c === 'number') costUsd += c
-      usage = usageFromClaudeResult(msg, opts.model)
+      usage = usageFromClaudeResult(msg, opts.model, cliVersion)
+      failure = claudeResultFailure(msg)
       structured = (msg as any).structured_output ?? null
     }
   }
+  if (failure) throw new Error(failure)
   return { result: parseStructured(VerifyResultSchema, structured, text), costUsd, usage }
 }
 
