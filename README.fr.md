@@ -207,7 +207,7 @@ Voir `.env.example` ; éléments clés :
 | `CODEX_SERVICE_TIER` |  | Optionnel, niveau de vitesse Codex/OpenAI par défaut global ; le bouton Fast au niveau projet le remplace. Pour désactiver fast globalement, laissez vide/supprimez-le et retirez aussi `service_tier` de `~/.codex/config.toml` s'il est défini globalement |
 | `CODEX_PROJECT_DOC_FALLBACK_FILENAMES` | `CLAUDE.md,.claude/CLAUDE.md` | Fichiers projet lus par Codex si `AGENTS.md` est absent |
 | `OPENAI_API_KEY` | `sk-...` | Optionnel si la connexion locale Codex n'est pas disponible |
-| `TRANSLATE_MODEL` | `sonnet` | Modèle léger pour réécrire les commentaires GitHub en anglais |
+| `TRANSLATE_MODEL` | (vide) | Modèle pour réécrire les commentaires GitHub en anglais et pour les messages de commit / titres ; vide = le modèle du projet en effort bas (projets Claude uniquement) |
 | `ANTHROPIC_API_KEY` | `sk-ant-...` | Optionnel pour le chemin Claude si la connexion locale n'est pas disponible |
 | `DEFAULT_REPO` | `owner/repo` | Optionnel, dépôt par défaut quand on colle un numéro de PR brut |
 | `DB_PATH` | `./data/cockpit.db` | Chemin SQLite |

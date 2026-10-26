@@ -7,6 +7,7 @@ process.env.CODEX_EXECUTABLE = resolve('tests/helpers/mockCodexAppServer.mjs')
 
 const { genCommitMessage } = await import('../core/fix/commitmsg')
 const { genFeatureTitle } = await import('../core/agent/featureTitle')
+const { runProviderHelperText } = await import('../core/host/helpers')
 const { stopCodexServer } = await import('../core/codex/appServer')
 
 const FALLBACK = 'fix: address review feedback'
@@ -18,6 +19,10 @@ try {
   const title = await genFeatureTitle({ ...codex, requirement: 'say hello', lang: 'en', cwd: process.cwd() })
   assert.ok(title.length > 0, 'the feature title comes from Codex too')
   assert.equal(await genCommitMessage(codex, '   ', process.cwd()), FALLBACK, 'an empty diff still short-circuits')
+  // A Codex helper turn that never finishes is interrupted at the timeout instead of holding the push forever.
+  const t0 = Date.now()
+  await assert.rejects(runProviderHelperText(codex, { prompt: 'slow', cwd: process.cwd(), timeoutMs: 300 }), /timed out/)
+  assert.ok(Date.now() - t0 < 5000, 'gave up at the timeout')
 } finally {
   await stopCodexServer()
 }

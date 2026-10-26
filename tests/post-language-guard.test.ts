@@ -79,4 +79,25 @@ assert.equal(languageHold(undefined, false), null)
 assert.match(languageHold(warnings, false)!, /1 条没转成英文/)
 assert.equal(languageHold(warnings, true), null)
 
+// ── kana and hangul are source language too ──
+assert.equal(untranslatedLine('**[Low] Title**\n\nまだ翻訳されていない'), 'まだ翻訳されていない')
+assert.equal(untranslatedLine('**[Low] Title**\n\n아직 번역되지 않음'), '아직 번역되지 않음')
+
+// ── a quoted literal from the code is code, however long; a bare sentence in backticks is not ──
+assert.equal(untranslatedLine("**[Low] Stale message**\n\nThe 409 still says `'评论正在发布中或状态已变化，请稍后再试'`."), null)
+assert.equal(untranslatedLine('**[Low] x**\n\n`仍无上限约束，隐藏集依旧全量物化。`'), '仍无上限约束，隐藏集依旧全量物化。')
+
+// ── a body that starts and ends with its own code blocks keeps both fences ──
+const codeSandwich = '```ts\nconst a = 1\n```\n\nThen:\n\n```ts\nconst b = 2\n```'
+assert.equal(stripWrapperFence(codeSandwich), codeSandwich)
+
+// ── an empty translation is a failure (it would post the source-language title, unflagged) ──
+await assert.rejects(makePrintEnglish(async () => '   ')('p'), /empty translation/)
+let n2 = 0
+assert.equal(await makePrintEnglish(async () => (++n2 === 1 ? leaky : ''))('p'), leaky, 'an empty corrective answer keeps the first one')
+
+// ── a failed preface is left out of the post, so it does not hold it; an untranslated one does ──
+assert.equal(languageHold([{ fid: 'notes', kind: 'failed', sample: '' }], false), null)
+assert.match(languageHold([{ fid: 'notes', kind: 'untranslated', sample: '前言' }], false)!, /1 条/)
+
 console.log('✓ post language guard')

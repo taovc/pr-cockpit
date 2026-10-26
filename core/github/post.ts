@@ -5,8 +5,7 @@ import { promisify } from 'node:util'
 import { writeFile, rm, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { runHelperText } from '../host/helpers'
-import { runCodexText } from '../codex/oneshot'
+import { runProviderHelperText } from '../host/helpers'
 import type { ReviewProvider } from '../agent/runners'
 
 const pexec = promisify(execFile)
@@ -52,9 +51,9 @@ function planFinding(f: PostFinding): Plan {
 }
 
 // Posted text must be English. Only prose is checked: fences, code-like inline spans and our HTML marker are exempt.
-const CJK = /[\u3400-\u4dbf\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/
-// A short literal or identifier; a sentence wrapped in backticks is still prose.
-const codeLike = (s: string) => s.length <= 40 && !/[，。！？；：]/.test(s)
+const CJK = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\u3000-\u303f\uff00-\uffef\u1100-\u11ff\uac00-\ud7af]/ // CJK, kana, hangul, CJK punctuation and fullwidth forms
+// Code (quotes, brackets, operators, paths) or a short literal is exempt; a bare sentence wrapped in backticks is still prose.
+const codeLike = (s: string) => /['"=(){}[\]<>/\\.:_;,]/.test(s) || (s.length <= 40 && !/[，。！？；：]/.test(s))
 
 export function untranslatedLine(body: string): string | null {
   const prose = (body || '')
@@ -97,16 +96,18 @@ function parseLoc(loc: string | null): { path: string; line: number } | null {
   return { path: m[1]!, line: Number(m[2]) }
 }
 
-// Drop a ```markdown wrapper around the whole answer; a code block that merely ends the body keeps its fence.
+// Drop a ```markdown wrapper around the whole answer; fences that belong to the body (it starts or ends with a code
+// block) are kept — a wrapper never has another fence inside it.
 export function stripWrapperFence(t: string): string {
   const m = /^```(?:markdown|md)?[ \t]*\n([\s\S]*?)\n?```\s*$/i.exec((t || '').trim())
-  return (m ? m[1]! : t || '').trim()
+  return (m && !m[1]!.includes('```') ? m[1]! : t || '').trim()
 }
 
 // One corrective pass when the answer still carries the source language; if that pass fails, keep the first answer.
 export function makePrintEnglish(print: (prompt: string) => Promise<string>): (prompt: string) => Promise<string> {
   return async (prompt) => {
     const out = stripWrapperFence(await print(prompt))
+    if (!out) throw new Error('empty translation') // falls back to the source-language title otherwise, unflagged
     const leak = untranslatedLine(out)
     if (!leak) return out
     try {
@@ -115,7 +116,7 @@ export function makePrintEnglish(print: (prompt: string) => Promise<string>): (p
 STILL UNTRANSLATED: ${leak}
 
 TEXT TO CORRECT:
-${out}`))
+${out}`)) || out
     } catch {
       return out
     }
@@ -123,12 +124,8 @@ ${out}`))
 }
 
 // Findings → English PR comment bodies, one-shot per finding in the project's own provider (never mixed).
-async function claudePrint(model: string, effort: string | undefined, prompt: string, cwd?: string): Promise<string> {
-  return runHelperText({ prompt, cwd: cwd || process.cwd(), model: model || 'sonnet', effort, timeoutMs: 120_000 })
-}
 function makePrint(provider: ReviewProvider, model: string, effort: string | undefined, cwd?: string, codexServiceTier?: string | null): (prompt: string) => Promise<string> {
-  if (provider === 'codex') return (prompt) => runCodexText({ prompt, model: model || undefined, effort, cwd, serviceTier: codexServiceTier })
-  return (prompt) => claudePrint(model, effort, prompt, cwd)
+  return (prompt) => runProviderHelperText({ provider, model, codexServiceTier }, { prompt, cwd: cwd || process.cwd(), effort, timeoutMs: 120_000 })
 }
 
 // Appended to every prompt branch: each one hands over source-language text.
@@ -245,8 +242,10 @@ export type AssembledReview = {
 
 // Unattended publishes stop on a language warning; a human publishing after the preview may accept it.
 export function languageHold(warnings: AssembledReview['warnings'] | undefined, accepted: boolean): string | null {
-  if (accepted || !warnings?.length) return null
-  return `有 ${warnings.length} 条没转成英文，未发布；请在预览里确认后手动发布`
+  // A failed preface is left out of the post, so nothing in the source language would go out because of it.
+  const blocking = (warnings ?? []).filter((w) => !(w.fid === 'notes' && w.kind === 'failed'))
+  if (accepted || !blocking.length) return null
+  return `有 ${blocking.length} 条没转成英文，未发布；请在预览里确认后手动发布`
 }
 
 export async function assembleReview(opts: {

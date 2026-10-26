@@ -94,8 +94,9 @@ export default defineEventHandler(async (event) => {
 
     let assembled: any
     const cached = !force && review.previewSig === sig && review.previewJson ? JSON.parse(review.previewJson) : null
-    // A preview retries translations that failed last time; a publish posts exactly what the preview showed.
-    const usedCache = !!cached && !(dryRun && cached.warnings?.some((w: any) => w.kind === 'failed'))
+    // Failed translations are retried by a preview and by an unattended publish; a publish the user confirmed after the
+    // preview posts exactly what the preview showed.
+    const usedCache = !!cached && !((dryRun || !acceptLangWarnings) && cached.warnings?.some((w: any) => w.kind === 'failed'))
     if (usedCache) {
       assembled = cached
     } else {
@@ -119,7 +120,8 @@ export default defineEventHandler(async (event) => {
 
     if (dryRun) return { dryRun: true, assembled, cached: usedCache }
 
-    const hold = languageHold(assembled.warnings, acceptLangWarnings)
+    // The user's acceptance covers the preview they saw: a publish that re-assembled is checked again.
+    const hold = languageHold(assembled.warnings, acceptLangWarnings && usedCache)
     if (hold) throw createError({ statusCode: 422, statusMessage: hold })
 
     // Every checked item was filtered out by its recheck status (reply-only with no response / retracted) → nothing left to post, don't post an empty review
