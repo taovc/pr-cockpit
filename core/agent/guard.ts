@@ -33,7 +33,7 @@ const SAFE_TOOLS = new Set(['Read', 'Grep', 'Glob'])
 const DANGER: RegExp[] = [
   // git writes / history rewrites / touching the remote / pulling external stuff
   // (the subcommand must follow `git` and its global options, so paths like `git log -- rm-helper.ts` stay allowed)
-  /\bgit\b(\s+(-C\s+\S+|-c\s+\S+|--[a-z-]+(=\S+)?))*\s+(add|commit|push|reset|rebase|merge|checkout|switch|restore|stash|clean|cherry-pick|revert|am|apply|tag|branch|gc|prune|worktree|config|remote|fetch|pull|clone|mv|rm)\b/i,
+  /\bgit\b(\s+(-C\s+\S+|-c\s+\S+|--[a-z-]+(=\S+)?))*\s+(add|commit|push|reset|rebase|merge|checkout|switch|restore|stash|clean|cherry-pick|revert|am|apply|tag|branch|gc|prune|worktree|config|remote|fetch|pull|clone|mv|rm)(?![\w-])/i, // merge-base, rev-list… are reads
   // gh write operations
   /\bgh\s+(pr|issue|release|repo|api|gist|label|secret|variable|ssh-key|gpg-key|workflow|run)\b[^\n]*\b(comment|review|merge|close|edit|create|delete|reopen|lock|unlock|upload|publish|sync|fork|set|rename|transfer|archive|enable|disable|rerun|cancel|checkout|ready|update-branch)\b/i,
   /\bgh\s+api\b[^\n]*(--method\s+(POST|PUT|PATCH|DELETE)|-X\s+(POST|PUT|PATCH|DELETE))/i,

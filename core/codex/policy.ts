@@ -1,5 +1,6 @@
 import type { PermissionMode } from '@anthropic-ai/claude-agent-sdk'
 import { isForbiddenRemoteOrGitMutation } from '../agent/commandGuard'
+import { reviewBashVerdict } from '../agent/reviewBash'
 
 // What each run kind is allowed to do on the Codex side, expressed in app-server terms (sandbox + approval policy) plus,
 // for unattended kinds, the host-side decider that answers approval requests before the command runs.
@@ -26,10 +27,10 @@ export function sandboxModeOf(s: SandboxPolicy): SandboxMode {
 }
 
 // Review family: physically read-only, network only for `gh` reads, and EVERY command is submitted for approval
-// (`untrusted`) so git/GitHub mutations are declined before they run instead of detected afterwards.
+// (`untrusted`) so only allowlisted read commands run (the same list as the Claude Bash tool).
 export function reviewPolicy(o: { allowNetwork: boolean }): CodexPolicy {
   const sandbox: SandboxPolicy = { type: 'readOnly', networkAccess: o.allowNetwork }
-  return { sandbox, sandboxMode: sandboxModeOf(sandbox), approval: 'untrusted', autoDecide: (cmd) => (isForbiddenRemoteOrGitMutation(cmd) ? 'decline' : 'accept'), ephemeral: true }
+  return { sandbox, sandboxMode: sandboxModeOf(sandbox), approval: 'untrusted', autoDecide: (cmd) => (reviewBashVerdict(cmd).ok && !isForbiddenRemoteOrGitMutation(cmd) ? 'accept' : 'decline'), ephemeral: true }
 }
 
 // One-shot helpers (commit message, title, comment rewrite): read-only, no network, nothing to approve.

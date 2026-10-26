@@ -27,26 +27,25 @@ onMounted(() => { try { const v = localStorage.getItem('mr.agentConfig.provider'
 watch(provider, (v) => { try { localStorage.setItem('mr.agentConfig.provider', v) } catch { /* ignore */ } })
 const isClaude = computed(() => provider.value === 'claude')
 
-// ── the two switches PR Cockpit owns ──
+// ── the switch PR Cockpit owns ──
 const savedAt = ref('')
 const saveError = ref('')
 const saving = ref(false)
 const chrome = ref(false)
-const reviewMcp = ref(false)
-watch(data, (d) => { if (d) { chrome.value = d.agent.chrome; reviewMcp.value = d.agent.reviewMcp } }, { immediate: true })
+watch(data, (d) => { if (d) chrome.value = d.agent.chrome }, { immediate: true })
 // One save at a time (the controls are disabled meanwhile); a failed save snaps the switches back to what the server holds.
-async function save(patch: { chrome?: boolean; reviewMcp?: boolean }) {
+async function save(patch: { chrome?: boolean }) {
   if (saving.value) return
   saving.value = true
   saveError.value = ''
   try {
-    const r = await $fetch<{ chrome: boolean; reviewMcp: boolean }>('/api/agent/config', { method: 'PATCH', body: patch })
-    chrome.value = r.chrome; reviewMcp.value = r.reviewMcp
+    const r = await $fetch<{ chrome: boolean }>('/api/agent/config', { method: 'PATCH', body: patch })
+    chrome.value = r.chrome
     savedAt.value = new Date().toLocaleTimeString(locale.value, { hour12: false })
     if (data.value) data.value = { ...data.value, agent: r }
   } catch (e: any) {
     saveError.value = e?.data?.statusMessage || e?.message || String(e)
-    if (data.value) { chrome.value = data.value.agent.chrome; reviewMcp.value = data.value.agent.reviewMcp }
+    if (data.value) chrome.value = data.value.agent.chrome
   } finally { saving.value = false }
 }
 
@@ -165,17 +164,11 @@ const card = 'border border-default p-3'
           <button v-for="(p, i) in PROVIDERS" :key="p" class="px-3 py-1.5 text-sm" :class="[i < PROVIDERS.length - 1 ? 'border-r border-default' : '', provider === p ? 'bg-muted text-highlighted' : 'hover:bg-muted']" @click="provider = p">{{ t(`agentConfig.provider.${p}`) }}</button>
         </div>
       </div>
-      <div class="p-4 grid md:grid-cols-2 gap-4">
-        <div v-if="isClaude" :class="card">
+      <div v-if="isClaude" class="p-4 grid md:grid-cols-2 gap-4">
+        <div :class="card">
           <div class="flex items-start justify-between gap-4">
             <div class="text-sm">{{ t('agentConfig.chrome') }}<span class="block text-xs text-dimmed mt-0.5 leading-relaxed">{{ t('agentConfig.chromeHint') }}</span></div>
             <USwitch :model-value="chrome" :disabled="saving" @update:model-value="(v: boolean) => save({ chrome: v })" />
-          </div>
-        </div>
-        <div :class="card">
-          <div class="flex items-start justify-between gap-4">
-            <div class="text-sm">{{ t('agentConfig.reviewMcp') }}<span class="block text-xs text-dimmed mt-0.5 leading-relaxed">{{ t('agentConfig.reviewMcpHint') }}</span></div>
-            <USwitch :model-value="reviewMcp" :disabled="saving" @update:model-value="(v: boolean) => save({ reviewMcp: v })" />
           </div>
         </div>
       </div>

@@ -731,9 +731,7 @@
       "codex": "Codex"
     },
     "chrome": "Claude in Chrome（--chrome）",
-    "chromeHint": "启动 Claude Code 时带 --chrome，拉起 Claude in Chrome 这个 MCP server。所有 Claude 会话生效（下一轮起），需要 Chrome 扩展；审核只有在允许 MCP 时才会带上。",
-    "reviewMcp": "允许审核使用 MCP",
-    "reviewMcpHint": "默认关：审核家族（首审 / 复审 / recheck / 自动化）不连接任何 MCP，只看仓库。打开后审核和会话一样连接你 CLI 里配置的全部 MCP——包括能写外部系统的工具，而自动审核是无人值守触发的。两个 provider 共用这一项。PR 分支自带的 .mcp.json / .codex/config.toml 里的服务永远不会被审核启用。",
+    "chromeHint": "启动 Claude Code 时带 --chrome，拉起 Claude in Chrome 这个 MCP server。所有 Claude 会话生效（下一轮起），需要 Chrome 扩展；审核从不连接 MCP。",
     "saved": "已保存",
     "memoryDir": "记忆 / transcript 目录",
     "groups": {

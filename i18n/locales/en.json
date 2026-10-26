@@ -731,9 +731,7 @@
       "codex": "Codex"
     },
     "chrome": "Claude in Chrome (--chrome)",
-    "chromeHint": "Start Claude Code with --chrome so the Claude in Chrome MCP server comes up. Applies to every Claude session (from the next turn) and needs the Chrome extension; reviews only get it when MCP is allowed below.",
-    "reviewMcp": "Let reviews use MCP",
-    "reviewMcpHint": "Off by default: the review family (review / re-review / recheck / automation) connects no MCP server and only reads the repository. On, reviews connect every MCP server configured in your CLI, like sessions do — including tools that write to external systems, and automatic reviews run unattended. Shared by both providers. Servers declared inside the PR branch itself (.mcp.json / .codex/config.toml) are never enabled for a review.",
+    "chromeHint": "Start Claude Code with --chrome so the Claude in Chrome MCP server comes up. Applies to every Claude session (from the next turn) and needs the Chrome extension; reviews never connect MCP.",
     "saved": "saved",
     "memoryDir": "memory / transcript directory",
     "groups": {

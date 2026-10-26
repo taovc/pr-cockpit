@@ -57,8 +57,6 @@ export type ReviewOptionsSpec = {
   effort?: string
   methodology: string // already wrapped by withContract()
   maxTurns: number
-  mcp?: boolean // let the review connect and call the user's MCP servers (agent-config switch; off = none connected)
-  chrome?: boolean // with mcp: also start Claude in Chrome (--chrome), like sessions do
   projectDirName?: string
   abort?: AbortController
   outputSchema?: Record<string, unknown> // JSON Schema the CLI validates the final message against (structured_output on the result)
@@ -70,25 +68,21 @@ export function buildReviewOptions(spec: ReviewOptionsSpec): Options {
   const bin = resolveClaudeExecutable()
   const env: Record<string, string | undefined> = { ...process.env }
   if (spec.projectDirName) env.CLAUDE_CODE_PROJECT_DIR_NAME = spec.projectDirName
-  const mcp = !!spec.mcp
-  // The review cwd is the PR branch worktree — attacker-controlled content. With MCP on the CLI would auto-approve and SPAWN
-  // servers from the branch's own .mcp.json before any tool call (verified against the bundled CLI), which none of the three
-  // read-only layers can see. A rejection beats every approval, so list them as disabled.
-  const projectMcp = mcp ? projectMcpServerNames(spec.cwd) : []
+  // No MCP in a review. The PR branch's own .mcp.json is also listed as disabled, in case strictMcpConfig ever stops
+  // covering it: the CLI would otherwise spawn those servers at init, unseen by the three read-only layers.
+  const projectMcp = projectMcpServerNames(spec.cwd)
   return {
     cwd: spec.cwd,
     ...(spec.model ? { model: spec.model } : {}),
     ...(spec.effort ? { effort: spec.effort as Options['effort'] } : {}),
     systemPrompt: { type: 'preset', preset: 'claude_code', append: spec.methodology },
     permissionMode: 'default',
-    canUseTool: makeReviewCanUseTool(mcp),
-    hooks: { PreToolUse: [{ hooks: [makeReviewGuardHook(mcp)] }] },
+    canUseTool: makeReviewCanUseTool(),
+    hooks: { PreToolUse: [{ hooks: [makeReviewGuardHook()] }] },
     disallowedTools: REVIEW_DISALLOWED_TOOLS,
     settings: { permissions: { deny: REVIEW_DENY_RULES }, disableAllHooks: true, ...(projectMcp.length ? { disabledMcpjsonServers: projectMcp } : {}) },
-    // MCP off → do not even connect the configured servers (faster start, nothing to leak to); on → the CLI connects
-    // them like a session does, optionally with Claude in Chrome.
-    ...(mcp ? {} : { mcpServers: {}, strictMcpConfig: true }),
-    ...(mcp && spec.chrome ? { extraArgs: { chrome: null } } : {}),
+    mcpServers: {},
+    strictMcpConfig: true,
     maxTurns: spec.maxTurns,
     ...(REVIEW_MAX_BUDGET_USD > 0 ? { maxBudgetUsd: REVIEW_MAX_BUDGET_USD } : {}),
     ...(spec.outputSchema ? { outputFormat: { type: 'json_schema', schema: spec.outputSchema } } : {}),

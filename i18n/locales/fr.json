@@ -731,9 +731,7 @@
       "codex": "Codex"
     },
     "chrome": "Claude in Chrome (--chrome)",
-    "chromeHint": "Démarre Claude Code avec --chrome pour lancer le serveur MCP Claude in Chrome. S’applique à toutes les sessions Claude (dès le tour suivant), nécessite l’extension Chrome ; les revues ne l’obtiennent que si MCP est autorisé ci-dessous.",
-    "reviewMcp": "Autoriser MCP dans les revues",
-    "reviewMcpHint": "Désactivé par défaut : la famille revue (revue / re-revue / recheck / automatisation) ne connecte aucun serveur MCP et ne lit que le dépôt. Activé, les revues connectent tous les serveurs MCP configurés dans votre CLI, comme les sessions — y compris des outils qui écrivent dans des systèmes externes, alors que les revues automatiques tournent sans surveillance. Partagé par les deux providers. Les serveurs déclarés dans la branche de la PR elle-même (.mcp.json / .codex/config.toml) ne sont jamais activés pour une revue.",
+    "chromeHint": "Démarre Claude Code avec --chrome pour lancer le serveur MCP Claude in Chrome. S’applique à toutes les sessions Claude (dès le tour suivant), nécessite l’extension Chrome ; les revues ne connectent jamais MCP.",
     "saved": "enregistré",
     "memoryDir": "dossier mémoire / transcript",
     "groups": {
