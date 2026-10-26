@@ -4,6 +4,8 @@
 export type RunKind = 'review' | 'session'
 export type RunSubkind = 'review' | 'guided' | 'recheck' | 'skillgen' | 'session' | 'helper' | 'eval' | 'verify' | ReviewStage
 export type ReviewStage = 'engine' | 'context' | 'check' | 'tier' // the scope-review pipeline's stages
+// Stage rows only break a review down; the review's own row carries the total, so sums skip them.
+export const STAGE_SUBKINDS_SQL = "('engine', 'context', 'check', 'tier')"
 export type RunStatus = 'queued' | 'running' | 'awaiting_input' | 'idle' | 'stopped' | 'done' | 'error'
 export type CostSource = 'reported' | 'estimated'
 

@@ -7,6 +7,10 @@ import { assembleFindings, fromContext, fromEngine, type RawFinding } from '../c
 import { buildContextDoc, findReviewMd, memoryIndexFor, referencedIssues } from '../core/review/context'
 import { engineLevelOf, taskGate } from '../core/review/engine'
 import { isAutomatable } from '../core/automation/findings'
+import { hasAiFindings, replaceFindings } from '../core/review/store'
+import { contextDocPath } from '../core/review/context'
+import { getDb, schema } from '../core/db/client'
+import { eq } from 'drizzle-orm'
 
 // ── rules the tier pass cannot break: nothing dropped, refuted never tiered, source and verdict from the ids ──
 const raw: RawFinding[] = [
@@ -70,6 +74,7 @@ assert.match(doc, /None\. Searched: origin\/main:REVIEW\.md in \/x; \/REVIEW\.md
 assert.match(doc, /focus on auth/)
 assert.match(buildContextDoc({ repo: 'o/r', prNumber: 5, prTitle: 't', defaultBranch: 'main', reviewMd: [], searched: [], requirement: { source: 'pr-body', text: '## Summary\nfix it' }, checks: [], memoryIndex: null, otherRepos: [] }), /> ## Summary\n> fix it/, 'the PR body is quoted so its headings stay inside the requirement')
 assert.match(doc, /\(no checks reported for this PR\)/)
+assert.match(buildContextDoc({ repo: 'o/r', prNumber: 5, prTitle: '', defaultBranch: 'main', reviewMd: [], searched: [], requirement: { source: 'none', text: '' }, checks: [], memoryIndex: null, otherRepos: [], unavailable: 'gh timed out' }), /could not be fetched \(gh timed out\)/, 'a failed gh call is said, not fatal')
 assert.equal(memoryIndexFor(undefined), null)
 mkdirSync(join(home, '.claude', 'projects', 'p', 'memory'), { recursive: true })
 writeFileSync(join(home, '.claude', 'projects', 'p', 'memory', 'MEMORY.md'), '- [a](a.md)')
@@ -105,5 +110,26 @@ assert.equal(isAutomatable({ tier: 'later', verifyStatus: 'confirmed', severity:
 assert.equal(isAutomatable({ tier: 'decide', verifyStatus: 'confirmed', severity: 'High' }), false)
 assert.equal(isAutomatable({ tier: null, verifyStatus: null, severity: 'High' }), true, 'older reviews: as before')
 assert.equal(isAutomatable({ tier: null, verifyStatus: 'refuted', severity: 'High' }), false)
+assert.equal(isAutomatable({ tier: null, source: 'engine', verifyStatus: null, severity: 'High' }), false, 'a refuted scope finding stays out even after a re-review clears its verdict')
+assert.equal(isAutomatable({ tier: 'must', source: 'human', verifyStatus: 'confirmed', severity: 'High' }), false, 'a hand-added miss is never automated')
+
+// ── a fresh review keeps the reviewer's own work: hand-added misses stay (renumbered), rated findings are labelled ──
+const db = getDb(':memory:')
+const now = new Date().toISOString()
+db.insert(schema.projects).values({ id: 'P', name: 'p', slug: 'p', repo: 'o/r', defaultBranch: 'main', createdAt: now } as any).run()
+db.insert(schema.reviews).values({ id: 'R', projectId: 'P', prNumber: 1, prUrl: 'u', status: 'draft', createdAt: now, updatedAt: now } as any).run()
+const ins = (id: string, fid: string, extra: Record<string, unknown>) => db.insert(schema.findings).values({ id, reviewId: 'R', fid, severity: 'Medium', title: id, introducedByPr: true, checked: false, sortOrder: 0, createdAt: now, ...extra } as any).run()
+ins('ai-rated', 'F1', { source: 'engine', tier: 'must', rating: 'noise', ratedAt: now })
+ins('ai-plain', 'F2', { source: 'context', tier: 'later' })
+ins('miss', 'F3', { source: 'human', tier: 'must', rating: 'must', ratedAt: now })
+assert.equal(hasAiFindings(db.select().from(schema.findings).all() as any[]), true)
+db.transaction((tx: any) => replaceFindings(tx, schema, { reviewId: 'R', headSha: 'abc', now, rows: [{ severity: 'High', title: 'new one', introducedByPr: true, tier: 'must', source: 'engine' }] }))
+const after = db.select().from(schema.findings).where(eq(schema.findings.reviewId, 'R')).all() as any[]
+assert.deepEqual(after.map((f) => [f.fid, f.title]).sort(), [['F1', 'new one'], ['F2', 'miss']], 'old AI findings replaced, the miss kept and renumbered after them')
+const labels = db.select().from(schema.findingLabels).all() as any[]
+assert.deepEqual(labels.map((l) => [l.title, l.rating, l.headSha]), [['ai-rated', 'noise', 'abc']], 'only rated AI findings are labelled (the miss is still on the review)')
+assert.equal(hasAiFindings([{ source: 'human' }]), false, 'only hand-added misses → the next run is a first pass')
+assert.equal(hasAiFindings([{ source: null }]), true)
+assert.ok(contextDocPath('/h', 'R').endsWith('/R/review-context.md'))
 
 console.log('✓ scope review')

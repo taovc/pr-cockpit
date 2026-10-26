@@ -6,6 +6,7 @@ import { nanoid } from 'nanoid'
 import { reviewQueue } from '~core/queue'
 import { fetchPrMeta } from '~core/github/gh'
 import { resolveLang } from '~core/agent/lang'
+import { hasAiFindings } from '~core/review/store'
 
 // Trigger (or re-run) a review task: set it to queued and enqueue it.
 export default defineEventHandler(async (event) => {
@@ -44,7 +45,7 @@ export default defineEventHandler(async (event) => {
   }
 
   // Re-review only makes sense once there is something to re-review; otherwise this is a first pass.
-  const hasFindings = d.select().from(schema.findings).where(eq(schema.findings.reviewId, id)).all().length > 0
+  const hasFindings = hasAiFindings(d.select().from(schema.findings).where(eq(schema.findings.reviewId, id)).all())
   const reReview = !fresh && hasFindings
 
   // Whatever is in the instruction box when the button is pressed steers THIS round (and only this one).

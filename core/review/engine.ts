@@ -7,10 +7,7 @@ import { mergeUsage } from '../agent/usage'
 import { jsonSchemaFor, parseStructured } from '../agent/structured'
 import type { ProviderUsage } from '../runs/types'
 
-// The finder: Claude Code's bundled /code-review in a clean, read-only process. /code-review hands the review to a
-// subagent and relays its report as text; once every task it started has finished, a second query resuming the same
-// session asks for the findings through the CLI-validated structured output, so the report's text format can change
-// between CLI versions without breaking us.
+// The finder: the bundled /code-review in a clean read-only process; a resumed second query structures its findings.
 
 export const ENGINE_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 export type EngineLevel = (typeof ENGINE_LEVELS)[number]
@@ -57,6 +54,7 @@ export async function runEngine(opts: {
   level: EngineLevel
   model?: string
   instruction?: string | null
+  effort?: string
   projectDirName?: string
   abort?: AbortController
   onTool?: (name: string, info: string) => void
@@ -72,10 +70,9 @@ export async function runEngine(opts: {
     trace.push(`${Math.round((Date.now() - t0) / 1000)}s ${m.type}/${m.subtype ?? ''}${m.task_id ? ` task=${m.task_id}` : ''}${m.status ? ` status=${m.status}` : ''}${m.is_backgrounded != null ? ` bg=${m.is_backgrounded}` : ''}${m.type === 'result' ? ` turns=${m.num_turns} ${String(m.result ?? '').slice(0, 80).replace(/\n/g, ' ')}` : ''}`)
   }
   const onToolUse = (b: any) => opts.onTool?.(b.name, String(b.input?.command ?? b.input?.description ?? b.input?.pattern ?? b.input?.file_path ?? '').slice(0, 80))
-  const base = { cwd: opts.cwd, model: opts.model, methodology: buildEngineAppend(opts.instruction), clean: true, baseBranch: opts.defaultBranch, projectDirName: opts.projectDirName, abort }
+  const base = { cwd: opts.cwd, model: opts.model, effort: opts.effort, methodology: buildEngineAppend(opts.instruction), clean: true, baseBranch: opts.defaultBranch, projectDirName: opts.projectDirName, abort }
   try {
-    // 1. The review itself, with no structured output: the subagent /code-review forks would otherwise grab the
-    //    StructuredOutput tool and the main thread would end with nothing but "Command completed".
+    // 1. No output schema here: the forked subagent would take the StructuredOutput tool and the main thread get nothing.
     let reviewed!: () => void
     const done = new Promise<void>((r) => { reviewed = r })
     const gate = taskGate(() => reviewed())

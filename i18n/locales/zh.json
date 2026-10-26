@@ -454,6 +454,7 @@
     "engineOk": "完成",
     "engineFailed": "失败",
     "reviewMdNone": "无",
+    "reviewMdLine": "REVIEW.md：{paths}",
     "rated": "已打分 {n}/{total}",
     "markPreview": "点一下在「preview 看到」和原证据之间切换",
     "missAdd": "补一条漏报",

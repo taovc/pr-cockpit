@@ -643,6 +643,24 @@ function ensureSchema(sqlite: Database.Database) {
       value TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS finding_labels (
+      id TEXT PRIMARY KEY,
+      review_id TEXT NOT NULL,
+      head_sha TEXT,
+      fid TEXT NOT NULL,
+      severity TEXT,
+      title TEXT NOT NULL,
+      location TEXT,
+      problem TEXT,
+      tier TEXT,
+      verify_status TEXT,
+      source TEXT,
+      rating TEXT,
+      rated_at TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS finding_labels_review_idx ON finding_labels(review_id);
+
     CREATE TABLE IF NOT EXISTS review_rule_files (
       sha TEXT PRIMARY KEY,
       path TEXT NOT NULL,

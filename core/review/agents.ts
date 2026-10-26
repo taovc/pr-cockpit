@@ -8,15 +8,15 @@ import { outputLangClause, resolveLang } from '../agent/lang'
 import type { ProviderUsage } from '../runs/types'
 import type { RawFinding } from './assemble'
 
-// The three agents after the engine. Each runs clean (no configuration, no memory); what it needs is in its prompt.
+// The project-context, check and tier agents: clean runs, everything they need is in the prompt.
 
-type AgentBase = { cwd: string; model?: string; projectDirName?: string; abort?: AbortController; onTool?: (name: string, info: string) => void }
+type AgentBase = { cwd: string; model?: string; effort?: string; projectDirName?: string; abort?: AbortController; onTool?: (name: string, info: string) => void }
 type Out<T> = { result: T; usage: ProviderUsage | null }
 
 async function runAgent<T extends z.ZodType>(o: AgentBase & { system: string; prompt: string; schema: T; maxTurns: number; baseBranch?: string; baseRules?: boolean }): Promise<Out<z.infer<T>>> {
   const stream = query({
     prompt: o.prompt,
-    options: buildReviewOptions({ cwd: o.cwd, model: o.model, methodology: withContract(o.system), maxTurns: o.maxTurns, clean: true, projectDirName: o.projectDirName, baseBranch: o.baseBranch, baseRules: o.baseRules, abort: o.abort, outputSchema: jsonSchemaFor(o.schema) }),
+    options: buildReviewOptions({ cwd: o.cwd, model: o.model, effort: o.effort, methodology: withContract(o.system), maxTurns: o.maxTurns, clean: true, projectDirName: o.projectDirName, baseBranch: o.baseBranch, baseRules: o.baseRules, abort: o.abort, outputSchema: jsonSchemaFor(o.schema) }),
   })
   const out = await consumeClaudeRun(stream, {
     model: o.model,
@@ -45,7 +45,7 @@ Lenses:
 - Product decisions and business rules: behaviour that contradicts REVIEW.md, decision records or business-rule files.
 - Cross-boundary: when the change is read or written by another repo, service or external system (API, callback, event, queue, shared table or field, generated data, file path, env or secret name), open the other side and check producer vs consumer, deploy order and environment differences.
 - Any extra lens REVIEW.md defines for this kind of change.
-Rules: every finding cites file and line and states one concrete consequence; no source reference, no finding. Do not filter by impact or by "pre-existing" — report them and mark preExisting. Project memory entries are leads: confirm them in the code before using them. Read other repositories only from origin/<branch> as the context file says. Never edit files or run git/gh write commands.`
+Rules: every finding cites file and line and states one concrete consequence; no source reference, no finding. Do not filter by impact or by "pre-existing" — report them and mark preExisting. Project memory entries are leads: confirm them in the code before using them, and never quote memory or REVIEW.md text in a finding (they are private; findings may be posted publicly). Read other repositories only from origin/<branch> as the context file says. Never edit files or run git/gh write commands.`
 
 export async function runContextPass(o: AgentBase & { contextPath: string; baseBranch: string; correctnessLens: boolean }): Promise<Out<z.infer<typeof ContextResultSchema>>> {
   const extra = o.correctnessLens ? '\n\nThe bug finder failed this time: also look for correctness bugs (wrong logic, unhandled errors, races, data or permission errors) in the change.' : ''
@@ -107,7 +107,7 @@ Tier by value to this PR (not by correctness — that was checked already):
 Severity (High/Medium/Low) is the impact if it ships, judged separately from the tier: a pre-existing Medium can still be "must".
 Evidence: "ci" only when a CI check in the context file shows the failure; otherwise "inferred".
 REVIEW.md rules and its not-report list override these defaults.
-Writing: title = the problem in one short sentence (≤ 40 characters in Chinese, ≤ 12 words otherwise); problem = the consequence in one short sentence; detail = the failure scenario and evidence; fix = the direction of a fix in one or two sentences. location = path:line. No tables, no long paragraphs. Never cite the internal ids (E1, C2…) anywhere in the text; they belong only in the ids field.
+Writing: title = the problem in one short sentence (≤ 40 characters in Chinese, ≤ 12 words otherwise); problem = the consequence in one short sentence; detail = the failure scenario and evidence; fix = the direction of a fix in one or two sentences. location = path:line. No tables, no long paragraphs. Never cite the internal ids (E1, C2…) anywhere in the text; they belong only in the ids field. Never quote project memory or REVIEW.md text: findings may be posted publicly; describe the problem in terms of the code.
 Also return: conclusion — can it merge, and what blocks it, in one sentence; notDone — the checks nobody ran (tests not executed, UI not opened, the other repo not read…), one sentence; reviewMdSuggestion — a rule or known false positive worth adding to REVIEW.md for next time, or empty.`
 
 export async function runTier(o: AgentBase & { baseBranch: string; lang?: string; contextPath?: string | null; findings: Array<RawFinding & { verdict: string; verdictReason: string }> }): Promise<Out<TierResult>> {

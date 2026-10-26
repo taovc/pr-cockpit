@@ -89,7 +89,7 @@ export type PrSnapshot = {
   reviewMode: 'once' | 'every_push'
   maxRounds: number
   actionableCount: number // number of findings still to handle (High/Med and unfixed; the engine computes it from the DB)
-  reviewFindingsCount: number // total findings from the review (0 = clean PR, nothing to post a comment about)
+  reviewFindingsCount: number // findings automation may post (0 = nothing to post a comment about)
   review: ReviewSnapshot | null
   fix: FixSnapshot
   // Resolved runtime state (reviewOn/fixOn are already effective booleans; round/lastFixReviewSha/pendingFix/optOut come from the pr_automation row)

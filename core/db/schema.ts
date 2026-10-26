@@ -152,8 +152,8 @@ export const findings = sqliteTable('findings', {
   verifyNote: text('verify_note'),
   // Scope-review pipeline (null on older reviews): value tier, evidence level, which pass found it, and the human rating.
   tier: text('tier', { enum: ['must', 'decide', 'later', 'edge'] }),
-  evidence: text('evidence', { enum: ['inferred', 'ci', 'preview'] }),
-  source: text('source', { enum: ['engine', 'context', 'both', 'human'] }),
+  evidence: text('evidence', { enum: ['inferred', 'ci', 'preview', 'github'] }),
+  source: text('source', { enum: ['engine', 'context', 'both', 'recheck', 'human'] }),
   rating: text('rating', { enum: ['must', 'later', 'noise', 'wrong'] }),
   ratedAt: text('rated_at'),
   notes: text('notes'),
@@ -615,7 +615,24 @@ export const evalFindings = sqliteTable('eval_findings', {
   createdAt: text('created_at').notNull(),
 })
 
-// Key/value store for one-off migration markers and similar bookkeeping.
+// Rated findings and missed issues added by hand, kept when a fresh review replaces the findings (eval labels).
+export const findingLabels = sqliteTable('finding_labels', {
+  id: text('id').primaryKey(),
+  reviewId: text('review_id').notNull(),
+  headSha: text('head_sha'),
+  fid: text('fid').notNull(),
+  severity: text('severity'),
+  title: text('title').notNull(),
+  location: text('location'),
+  problem: text('problem'),
+  tier: text('tier'),
+  verifyStatus: text('verify_status'),
+  source: text('source'),
+  rating: text('rating'),
+  ratedAt: text('rated_at'),
+  createdAt: text('created_at').notNull(),
+})
+
 // Content of every REVIEW.md version a review has read, keyed by its sha (runs.review_rules points here).
 export const reviewRuleFiles = sqliteTable('review_rule_files', {
   sha: text('sha').primaryKey(),
@@ -624,6 +641,7 @@ export const reviewRuleFiles = sqliteTable('review_rule_files', {
   createdAt: text('created_at').notNull(),
 })
 
+// Key/value store for one-off migration markers and similar bookkeeping.
 export const meta = sqliteTable('meta', {
   key: text('key').primaryKey(),
   value: text('value'),

@@ -18,9 +18,11 @@ export async function consumeClaudeRun(stream: AsyncIterable<any>, opts: { model
   const out: ClaudeRunOutput = { text: '', structured: null, usage: null, costUsd: 0, subtype: null }
   let cliVersion: string | null = null
   let failure: string | null = null
+  let forked = false
   try {
     for await (const msg of stream) {
       cliVersion = claudeCliVersionOf(msg) ?? cliVersion
+      if (msg.type === 'system' && msg.subtype === 'task_started') forked = true
       opts.onMessage?.(msg)
       if (msg.type === 'assistant') {
         const content = msg.message?.content
@@ -35,7 +37,7 @@ export async function consumeClaudeRun(stream: AsyncIterable<any>, opts: { model
         out.usage = usageFromClaudeResult(msg, opts.model, cliVersion)
         out.subtype = typeof msg.subtype === 'string' ? msg.subtype : null
         out.structured = msg.structured_output ?? null
-        failure = failure ?? claudeResultFailure(msg) // a failed turn stays failed in a multi-turn run
+        failure = failure ?? claudeResultFailure(msg, { forked }) // a failed turn stays failed in a multi-turn run
         opts.onResult?.(msg)
       }
     }

@@ -1,9 +1,10 @@
-import { eq, sql, and, or, isNull, ne } from 'drizzle-orm'
+import { eq, sql, inArray } from 'drizzle-orm'
 import { getDb, schema } from '~core/db/client'
 import { listPulls, getCurrentUserLogin } from '~core/github/gh'
 import { isRunBusy } from '~core/runs/session'
 import { runAutomationTick, type EngineDeps } from '~core/automation/engine'
 import { buildAutoFixMessage } from '~core/automation/fixprompt'
+import { isAutomatable } from '~core/automation/findings'
 import { resolveLang } from '~core/agent/lang'
 
 // The resident PR automation engine: the only server-side timed loop (a Nitro plugin like recover.ts,
@@ -52,9 +53,12 @@ export default defineNitroPlugin((nitroApp) => {
     // so the engine logs them and retries next round.
     dispatchPost: async (reviewId) => {
       // Tick everything for auto-post, but never overwrite a human's own decision provenance.
-      d.update(schema.findings)
-        .set({ checked: true, checkedBy: sql`CASE WHEN ${schema.findings.checked} = 1 AND ${schema.findings.checkedBy} IS NOT NULL THEN ${schema.findings.checkedBy} ELSE 'engine' END`, checkedAt: now() })
-        .where(and(eq(schema.findings.reviewId, reviewId), or(and(isNull(schema.findings.tier), or(isNull(schema.findings.verifyStatus), ne(schema.findings.verifyStatus, 'refuted'))), and(eq(schema.findings.tier, 'must'), eq(schema.findings.verifyStatus, 'confirmed'))))).run() // older reviews: everything not refuted; scope reviews: only confirmed "must" items (same rule as isAutomatable)
+      const ids = (d.select().from(schema.findings).where(eq(schema.findings.reviewId, reviewId)).all() as any[]).filter(isAutomatable).map((f) => f.id)
+      if (ids.length) {
+        d.update(schema.findings)
+          .set({ checked: true, checkedBy: sql`CASE WHEN ${schema.findings.checked} = 1 AND ${schema.findings.checkedBy} IS NOT NULL THEN ${schema.findings.checkedBy} ELSE 'engine' END`, checkedAt: now() })
+          .where(inArray(schema.findings.id, ids)).run()
+      }
       try {
         await $fetch(`/api/reviews/${reviewId}/post`, { method: 'POST', headers: cookieHeader, body: { dryRun: false } })
         return { posted: true }

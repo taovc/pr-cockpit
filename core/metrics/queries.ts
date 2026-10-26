@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { loadCodexRates } from '../runs/pricing'
+import { STAGE_SUBKINDS_SQL } from '../runs/types'
 
 // Pure read-side queries for the dashboard. db/schema are injected (same convention as core/automation/*),
 // so the same code runs against the real SQLite and the in-memory test DB. Everything here is plain SQL over
@@ -41,7 +42,7 @@ export function runsBySubkind(db: any, f: MetricsFilter = {}) {
            SUM(CASE WHEN cost_usd IS NULL THEN 1 ELSE 0 END) AS unpriced,
            SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
            SUM(cache_read_tokens) AS cache_read_tokens, SUM(cache_create_tokens) AS cache_create_tokens
-    FROM runs ${w.clause}
+    FROM runs ${w.clause ? w.clause + ' AND' : 'WHERE'} subkind NOT IN ${STAGE_SUBKINDS_SQL}
     GROUP BY subkind, provider
     ORDER BY subkind, provider`, w.args)
 }
@@ -89,9 +90,9 @@ export function precisionBySkillVersion(db: any, f: MetricsFilter = {}) {
            SUM(CASE WHEN fd.posted_post_id IS NULL AND fd.checked = 1 AND fd.checked_by IN ('auto', 'engine') THEN 1 ELSE 0 END) AS machine_checked,
            SUM(CASE WHEN fd.posted_post_id IS NOT NULL THEN 1 ELSE 0 END) AS posted,
            (SELECT SUM(ru.cost_usd) FROM runs ru JOIN reviews r2 ON r2.id = ru.review_id
-              ${costWhere.clause ? costWhere.clause + ' AND' : 'WHERE'} r2.skill_version_id IS r.skill_version_id AND ${triaged.replace(/\br\./g, 'r2.')}) AS cost_usd
+              ${costWhere.clause ? costWhere.clause + ' AND' : 'WHERE'} ru.subkind NOT IN ${STAGE_SUBKINDS_SQL} AND r2.skill_version_id IS r.skill_version_id AND ${triaged.replace(/\br\./g, 'r2.')}) AS cost_usd
     FROM reviews r
-    LEFT JOIN findings fd ON fd.review_id = r.id
+    LEFT JOIN findings fd ON fd.review_id = r.id AND COALESCE(fd.source, '') <> 'human' AND NOT (fd.source IS NOT NULL AND fd.tier IS NULL AND fd.verify_status = 'refuted') -- what the AI presented as holding
     LEFT JOIN skill_versions sv ON sv.id = r.skill_version_id
     LEFT JOIN skills s ON s.id = sv.skill_id
     ${w.clause ? w.clause + ' AND' : 'WHERE'} ${triaged}
@@ -159,7 +160,7 @@ export function costByDay(db: any, f: MetricsFilter = {}, days = 30) {
   return all(db, `
     SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS runs, SUM(cost_usd) AS cost_usd,
            SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens
-    FROM runs ${w.clause}
+    FROM runs ${w.clause ? w.clause + ' AND' : 'WHERE'} subkind NOT IN ${STAGE_SUBKINDS_SQL}
     GROUP BY day ORDER BY day DESC LIMIT ?`, [...w.args, days])
 }
 

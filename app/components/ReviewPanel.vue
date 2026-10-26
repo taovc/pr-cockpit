@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { reviewSectionRe } from '~core/agent/reviewSections'
 import { isRecheckResolved, stanceOf } from '~core/recheckAxes'
+import { isAutomatable } from '~core/automation/automatable'
 
 const props = defineProps<{ projectId: string; prNumber: number; reviewId: string | null }>()
 const emit = defineEmits<{ created: [id: string]; changed: [] }>()
@@ -42,10 +43,13 @@ const preview = ref<any>(null) // dry-run preview of the comment to post (declar
 let es: EventSource | null = null
 let alive = true // after unmount, ignore write-backs from in-flight $fetch (closing the drawer while a preview is generating leaves the request running)
 
+let loadSeq = 0
 async function load() {
-  if (!rid.value) return
-  const d = await $fetch<ReviewData>(`/api/reviews/${rid.value}`)
-  if (!alive) return
+  const id = rid.value
+  if (!id) return
+  const seq = ++loadSeq
+  const d = await $fetch<ReviewData>(`/api/reviews/${id}`)
+  if (!alive || seq !== loadSeq || rid.value !== id) return // a newer load or another review won
   data.value = d
   emit('changed') // tell the page this review's status/content may have changed → refresh the task list
   // backfill the log from historical events (so opening a finished task still shows, line by line, what the agent did back then)
@@ -71,6 +75,7 @@ async function autoAdjustChecks() {
     if (!f.rechecks.length) continue
     const latest = f.rechecks[f.rechecks.length - 1]!
     const desired = !isRecheckResolved(latest)
+    if (desired && f.source && !isAutomatable(f)) continue // a scope finding is ticked by hand unless it is a confirmed "must"
     if (f.checked !== desired) { f.checked = desired; changed.push(f) }
   }
   if (!changed.length) return
@@ -254,7 +259,7 @@ const SKIP_REASON: Record<string, string> = {
 function skipReasonLabel(s: string) { const k = SKIP_REASON[s]; return k ? t(k) : s }
 
 // ── scope-review reports: tiers, evidence, ratings, misses (older reviews keep the flat list) ──
-const isScope = computed(() => !!data.value?.review?.pipelineMeta || !!data.value?.findings.some((f) => f.tier))
+const isScope = computed(() => !!data.value?.review?.pipelineMeta)
 const pipelineMeta = computed<{ engineLevel?: string; engineOk?: boolean; reviewMd?: string[] } | null>(() => {
   try { return data.value?.review?.pipelineMeta ? JSON.parse(data.value.review.pipelineMeta) : null } catch { return null }
 })
@@ -389,7 +394,7 @@ async function copySuggestion() {
           </div>
           <div v-if="pipelineMeta" class="text-[11px] text-dimmed mt-2">
             {{ $t('review.engineLine', { level: pipelineMeta.engineLevel || 'high' }) }}{{ pipelineMeta.engineOk === false ? $t('review.engineFailed') : $t('review.engineOk') }}
-            · REVIEW.md：{{ pipelineMeta.reviewMd?.length ? pipelineMeta.reviewMd.join('、') : $t('review.reviewMdNone') }}
+            · {{ $t('review.reviewMdLine', { paths: pipelineMeta.reviewMd?.length ? pipelineMeta.reviewMd.join(', ') : $t('review.reviewMdNone') }) }}
           </div>
         </template>
       </section>
@@ -406,7 +411,7 @@ async function copySuggestion() {
       </section>
 
       <!-- requirement / test path -->
-      <template v-if="data.review.requirement || data.review.testPath">
+      <template v-if="!isScope && (data.review.requirement || data.review.testPath)">
         <section v-if="data.review.requirement" class="mb-4">
           <div class="text-[10px] uppercase tracking-[0.15em] text-dimmed mb-1">{{ $t('review.requirement') }}</div>
           <MarkdownBody :text="fmt(data.review.requirement)" />
@@ -438,7 +443,7 @@ async function copySuggestion() {
             <div class="text-sm">
               <span class="text-xs mr-1" :class="sevCls[f.severity]">[{{ f.severity }}]</span><MarkdownBody :text="f.title" inline />
             </div>
-            <div class="text-xs text-dimmed mt-0.5">{{ f.location }}<span v-if="!f.introducedByPr"> {{ $t('review.preExisting') }}</span><span v-if="f.verifyStatus === 'refuted'" class="ml-1 text-highlighted" :title="f.verifyNote || ''">⊘ {{ $t('review.verifyRefuted') }}</span><span v-else-if="f.verifyStatus === 'confirmed'" class="ml-1" :title="f.verifyNote || ''">✓ {{ $t('review.verifyConfirmed') }}</span><span v-else-if="f.verifyStatus === 'unsure'" class="ml-1" :title="f.verifyNote || ''">? {{ $t('review.verifyUnsure') }}</span><template v-if="isScope"><button v-if="f.source !== 'human'" class="ml-1 hover:text-highlighted" :title="$t('review.markPreview')" @click="togglePreviewEvidence(f)">· {{ $t(`review.evidence.${f.evidence || 'inferred'}`) }}</button><span v-if="f.source" class="ml-1">· {{ $t(`review.source.${f.source}`) }}</span></template></div>
+            <div class="text-xs text-dimmed mt-0.5">{{ f.location }}<span v-if="!f.introducedByPr"> {{ $t('review.preExisting') }}</span><span v-if="f.verifyStatus === 'refuted'" class="ml-1 text-highlighted" :title="f.verifyNote || ''">⊘ {{ $t('review.verifyRefuted') }}</span><span v-else-if="f.verifyStatus === 'confirmed'" class="ml-1" :title="f.verifyNote || ''">✓ {{ $t('review.verifyConfirmed') }}</span><span v-else-if="f.verifyStatus === 'unsure'" class="ml-1" :title="f.verifyNote || ''">? {{ $t('review.verifyUnsure') }}</span><template v-if="isScope"><button v-if="f.source !== 'human' && (!f.evidence || f.evidence === 'inferred' || f.evidence === 'preview')" class="ml-1 hover:text-highlighted" :title="$t('review.markPreview')" @click="togglePreviewEvidence(f)">· {{ $t(`review.evidence.${f.evidence || 'inferred'}`) }}</button><span v-else-if="f.evidence" class="ml-1">· {{ $t(`review.evidence.${f.evidence}`) }}</span><span v-if="f.source" class="ml-1">· {{ $t(`review.source.${f.source}`) }}</span></template></div>
             <MarkdownBody v-if="f.problem" :text="f.problem" class="mt-1" />
             <details v-if="f.detail || f.fix" class="mt-1">
               <summary class="text-xs text-dimmed cursor-pointer">{{ $t('review.detailFix') }}</summary>

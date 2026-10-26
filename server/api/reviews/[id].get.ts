@@ -45,7 +45,7 @@ export default defineEventHandler(async (event) => {
       verify: verifyRun ? { status: verifyRun.status, costUsd: verifyRun.costUsd, durationMs: verifyRun.durationMs } : null,
     }
   }
-  const priced = runs.filter((r) => r.costUsd != null)
+  const priced = runs.filter((r) => r.costUsd != null && !['engine', 'context', 'check', 'tier'].includes(r.subkind)) // stage rows are inside the review's own total
   const totalCostUsd = priced.length ? priced.reduce((a, r) => a + (r.costUsd as number), 0) : null
   // The timeline shows only non-tool events plus the last few tool ones (there are too many tool events, and SSE already shows them live)
   const events = d.select().from(schema.events).where(eq(schema.events.reviewId, id)).all()

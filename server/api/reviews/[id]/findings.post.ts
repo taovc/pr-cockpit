@@ -3,8 +3,7 @@ import { nanoid } from 'nanoid'
 import { z } from 'zod'
 import { schema } from '~core/db/client'
 
-// A finding the reviewer adds by hand: something the review missed. It is a labelled miss for the eval set and can be
-// posted like any other finding.
+// A missed issue the reviewer adds by hand: posted like any other finding, kept when a fresh review replaces the rest.
 const Body = z.object({
   location: z.string().trim().max(300).default(''),
   title: z.string().trim().min(1).max(500),
@@ -16,7 +15,11 @@ export default defineEventHandler(async (event) => {
   const parsed = Body.safeParse(await readBody(event))
   if (!parsed.success) throw createError({ statusCode: 400, statusMessage: '参数错误' })
   const d = db()
-  if (!d.select().from(schema.reviews).where(eq(schema.reviews.id, id)).get()) throw createError({ statusCode: 404, statusMessage: 'review 不存在' })
+  const review = d.select().from(schema.reviews).where(eq(schema.reviews.id, id)).get()
+  if (!review) throw createError({ statusCode: 404, statusMessage: 'review 不存在' })
+  if (['queued', 'cloning', 'reviewing', 'recheck_requested', 'rechecking', 'posting'].includes(review.status)) {
+    throw createError({ statusCode: 409, statusMessage: `当前状态（${review.status}）不能补漏报，请等任务完成` })
+  }
   const existing = d.select().from(schema.findings).where(eq(schema.findings.reviewId, id)).all()
   const n = existing.reduce((m, f) => Math.max(m, parseInt(String(f.fid).replace(/\D/g, '')) || 0), 0) + 1
   const now = new Date().toISOString()

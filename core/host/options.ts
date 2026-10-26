@@ -12,7 +12,7 @@ import { makeReviewCanUseTool, makeReviewGuardHook, REVIEW_DENY_RULES, REVIEW_DI
 // canUseTool bridge + danger hook), not in isolation.
 export function buildOptions(spec: RunSpec, hooks: { canUseTool: CanUseTool; dangerHook: HookCallback; abort: AbortController; stderr?: (d: string) => void }): Options {
   const bin = resolveClaudeExecutable()
-  const env: Record<string, string | undefined> = { ...process.env }
+  const env = cliEnv()
   if (spec.projectDirName) env.CLAUDE_CODE_PROJECT_DIR_NAME = spec.projectDirName
   const opts: Options = {
     cwd: spec.cwd,
@@ -67,19 +67,18 @@ export type ReviewOptionsSpec = {
   resume?: string // continue this session (a second query on the same conversation)
 }
 
-// Review family: only the user's own configuration is loaded; the PR branch's CLAUDE.md and .claude/ (settings, env, skills,
-// agents) are not, since the author controls them. The base branch's CLAUDE.md / AGENTS.md are appended instead.
-// Variables a parent Claude Code / desktop session leaves in the server's environment. Passed on, they make the review CLI
-// act as part of that session (a forked /code-review returned "Command completed" at once), so a review never inherits them.
-const SESSION_ENV = /^(CLAUDECODE|CLAUDE_CODE_|CLAUDE_AGENT_SDK_|AI_AGENT$)/
+// The identity of a parent Claude Code / desktop session the server may have been started from; the user's own CLI
+// configuration (CLAUDE_CODE_USE_BEDROCK, CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_*…) is kept.
+const SESSION_ENV = /^(CLAUDECODE|CLAUDE_PID|CLAUDE_EFFORT|CLAUDE_PREVIEW_\w+|CLAUDE_AGENT_SDK_\w+|AI_AGENT|CLAUDE_CODE_(ENTRYPOINT|SESSION_ID|SESSION_ATTENDED|CHILD_SESSION|HOST_SESSION_ID|MESSAGING_\w+|DESKTOP_APP_VERSION|EXECPATH|SDK_HAS_HOST_AUTH_REFRESH|ACCOUNT_UUID|ORGANIZATION_UUID|USER_EMAIL|OAUTH_SCOPES|TERMINAL_MCP_TOOLS|EMIT_\w+|EAGER_FLUSH|STARTUP_FAILURE_RESULTS|ENABLE_ASK_USER_QUESTION_TOOL|ENABLE_SDK_FILE_CHECKPOINTING|DISABLE_CRON|DISABLE_TERMINAL_TITLE|SIMPLE))$/
 
-export function reviewEnv(base: NodeJS.ProcessEnv = process.env): Record<string, string | undefined> {
+export function cliEnv(base: NodeJS.ProcessEnv = process.env): Record<string, string | undefined> {
   return Object.fromEntries(Object.entries(base).filter(([k]) => !SESSION_ENV.test(k)))
 }
 
+// Review family: only the user's own configuration is loaded; the PR branch's CLAUDE.md and .claude/ are author-controlled.
 export function buildReviewOptions(spec: ReviewOptionsSpec): Options {
   const bin = resolveClaudeExecutable()
-  const env = reviewEnv()
+  const env = cliEnv()
   if (spec.projectDirName) env.CLAUDE_CODE_PROJECT_DIR_NAME = spec.projectDirName // transcripts land in the project's dir; clean runs load no memory from it
   const rules = spec.baseRules === false ? [] : projectRules(spec.cwd, spec.baseBranch)
   // No MCP in a review. The PR branch's own .mcp.json is also listed as disabled, in case strictMcpConfig ever stops
@@ -152,6 +151,7 @@ export function buildHelperOptions(spec: { cwd: string; model?: string; effort?:
     maxTurns: 1,
     persistSession: false,
     permissionMode: 'dontAsk',
+    env: cliEnv(),
     ...(bin ? { pathToClaudeCodeExecutable: bin } : {}),
     ...(spec.abort ? { abortController: spec.abort } : {}),
   }
@@ -160,7 +160,7 @@ export function buildHelperOptions(spec: { cwd: string; model?: string; effort?:
 // Configuration probe (agent-config screen): load everything like a session would, never persist, never run a turn.
 export function buildProbeOptions(spec: { cwd: string; chrome?: boolean; projectDirName?: string; abort: AbortController }): Options {
   const bin = resolveClaudeExecutable()
-  const env: Record<string, string | undefined> = { ...process.env }
+  const env = cliEnv()
   if (spec.projectDirName) env.CLAUDE_CODE_PROJECT_DIR_NAME = spec.projectDirName
   return {
     cwd: spec.cwd,

@@ -454,6 +454,7 @@
     "engineOk": "done",
     "engineFailed": "failed",
     "reviewMdNone": "none",
+    "reviewMdLine": "REVIEW.md: {paths}",
     "rated": "Rated {n}/{total}",
     "markPreview": "Click to toggle between \"seen in preview\" and the original evidence",
     "missAdd": "Add a missed issue",

@@ -1,8 +1,7 @@
 import type { EngineFinding } from './engine'
 import type { TierResult } from './agents'
 
-// Pure rules applied after the tier pass, so the model cannot break them: nothing is dropped, a refuted finding is never
-// tiered, and source / verdict come from the original ids rather than the model's word.
+// Rules applied in code after the tier pass: nothing is dropped, refuted findings are never tiered.
 
 export type RawSource = 'engine' | 'context' | 'recheck'
 export type RawFinding = { id: string; source: RawSource; file: string; line: number | null; title: string; scenario: string; preExisting: boolean }

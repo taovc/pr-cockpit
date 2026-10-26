@@ -5,9 +5,9 @@ import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { fetchIssueBody, fetchPrReviewSources, type PrReviewSources } from '../github/gh'
+import { reviewHistoryDir } from '../agent/reviewHistory'
 
-// Everything the project-context pass needs, collected by code before any agent starts (a model told to "find
-// REVIEW.md" misread refused or timed-out lookups as "not found"). Written to one file the agent reads.
+// What the review agents need about a PR, collected by code before any agent starts and written to one file.
 
 const pexec = promisify(execFile)
 
@@ -20,6 +20,7 @@ export type ReviewContext = {
   checks: PrReviewSources['checks']
   memoryIndex: { dir: string; text: string } | null
   otherRepos: OtherRepo[]
+  unavailable?: string // why the requirement and CI could not be fetched
 }
 
 const sha = (s: string) => createHash('sha256').update(s).digest('hex')
@@ -101,15 +102,18 @@ export async function gatherReviewContext(o: {
   projects: Array<{ repo: string; localPath: string | null; defaultBranch: string }>
 }): Promise<ReviewContext & { prTitle: string }> {
   const { files, searched } = findReviewMd(o.localPath, o.defaultBranch)
-  const src = await fetchPrReviewSources(o.repo, o.prNumber)
+  let src: PrReviewSources = { title: '', body: '', closingIssues: [], commits: [], checks: [] }
+  let unavailable: string | undefined
+  try { src = await fetchPrReviewSources(o.repo, o.prNumber) } catch (e) { unavailable = (e as Error).message }
   const [requirement, otherRepos] = await Promise.all([requirementOf(o.repo, o.prNumber, src), otherReposFor(files, o.projects, o.repo)])
-  return { prTitle: src.title, reviewMd: files, searched, requirement, checks: src.checks, memoryIndex: memoryIndexFor(o.projectDirName), otherRepos }
+  return { prTitle: src.title, reviewMd: files, searched, requirement, checks: src.checks, memoryIndex: memoryIndexFor(o.projectDirName), otherRepos, ...(unavailable ? { unavailable } : {}) }
 }
 
 export function buildContextDoc(c: ReviewContext & { repo: string; prNumber: number; prTitle: string; defaultBranch: string; instruction?: string | null }): string {
   const lines: string[] = [`# Review context for ${c.repo}#${c.prNumber}: ${c.prTitle}`, '']
   lines.push(`Read the change with \`git diff origin/${c.defaultBranch}...HEAD\` in the current directory (the PR branch).`, '')
   if (c.instruction?.trim()) lines.push('## What the reviewer asked for this pass', '', c.instruction.trim(), '')
+  if (c.unavailable) lines.push('## Not available', '', `The requirement sources and CI checks could not be fetched (${c.unavailable}). Read the PR with \`gh pr view\` if you need them, and say what you could not check.`, '')
   const quote = (t: string) => t.trim().split('\n').map((l) => `> ${l}`).join('\n') // its own headings must not read as sections of this file
   lines.push(`## Requirement (source: ${c.requirement.source})`, '', c.requirement.text.trim() ? quote(c.requirement.text) : '(none found: no closing or referenced issue, empty PR body, no commit message)', '')
   lines.push('## CI checks', '')
@@ -117,7 +121,7 @@ export function buildContextDoc(c: ReviewContext & { repo: string; prNumber: num
   lines.push('## REVIEW.md (project review rules)', '')
   if (c.reviewMd.length) for (const r of c.reviewMd) lines.push(`### ${r.path}${r.from === 'base-branch' ? ' (as on the base branch)' : ''}`, '', r.text.trim(), '')
   else lines.push(`None. Searched: ${c.searched.join('; ')}.`, '')
-  lines.push('## Project memory (leads only — confirm everything in the code)', '')
+  lines.push('## Project memory (leads only — confirm everything in the code; never quote it in a finding, it is private)', '')
   if (c.memoryIndex) lines.push(`Index of ${c.memoryIndex.dir} (open an entry with the Read tool when its title is relevant):`, '', c.memoryIndex.text.trim(), '')
   else lines.push('(no project memory)', '')
   if (c.otherRepos.length) {
@@ -128,10 +132,13 @@ export function buildContextDoc(c: ReviewContext & { repo: string; prNumber: num
   return lines.join('\n')
 }
 
+export function contextDocPath(root: string, reviewId: string): string {
+  return join(reviewHistoryDir(root, reviewId), 'review-context.md')
+}
+
 export function writeContextDoc(root: string, reviewId: string, doc: string): string {
-  const dir = join(root, reviewId)
-  mkdirSync(dir, { recursive: true })
-  const path = join(dir, 'review-context.md')
+  const path = contextDocPath(root, reviewId)
+  mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, doc, 'utf8')
   return path
 }

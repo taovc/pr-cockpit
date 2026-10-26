@@ -1,5 +1,8 @@
 import { eq, asc, inArray } from 'drizzle-orm'
 import { isRecheckResolved } from '../recheckAxes'
+import { isAutomatable } from './automatable'
+
+export { isAutomatable }
 
 // Single definition of an "outstanding finding": severity is High/Medium (we don't chase Low/nit) and it is not yet resolved.
 // Resolved = we retracted it, or the author fixed/replied to it — decided by isRecheckResolved, which reads both axes.
@@ -11,12 +14,6 @@ import { isRecheckResolved } from '../recheckAxes'
 // two from drifting apart. db/schema are injected by the caller (core does not depend on the runtime db directly).
 const ACTIONABLE_SEVERITY = new Set(['High', 'Medium'])
 
-// Scope-review findings carry a tier: automation only ever touches "must fix in this PR" that the check confirmed.
-// Older findings (no tier) keep the severity rule.
-export function isAutomatable(f: { tier?: string | null; verifyStatus?: string | null; severity: string }): boolean {
-  if (f.tier != null) return f.tier === 'must' && f.verifyStatus === 'confirmed'
-  return f.verifyStatus !== 'refuted'
-}
 
 export type ReviewFindingStats = {
   total: number // findings automation may post (0 = nothing to post)

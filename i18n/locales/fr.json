@@ -454,6 +454,7 @@
     "engineOk": "terminé",
     "engineFailed": "échec",
     "reviewMdNone": "aucun",
+    "reviewMdLine": "REVIEW.md : {paths}",
     "rated": "Noté {n}/{total}",
     "markPreview": "Cliquer pour basculer entre « vu en preview » et la preuve d’origine",
     "missAdd": "Ajouter un oubli",
