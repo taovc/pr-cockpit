@@ -55,14 +55,15 @@ export function claudeCliVersionOf(msg: any): string | null {
   return msg?.type === 'system' && msg.subtype === 'init' && typeof msg.claude_code_version === 'string' ? msg.claude_code_version : null
 }
 
-// Why a result message is not a real answer, or null when it is. Some failures arrive as subtype "success" with
-// is_error false: an unsupported model gives zero turns and the API error as the result text.
+// Why a result message is not an answer, or null when it is. Runs cut short (max turns, retries) are left to the parser.
 export function claudeResultFailure(msg: any): string | null {
   if (!msg || msg.type !== 'result') return null
   const text = typeof msg.result === 'string' ? msg.result.trim() : ''
-  if (msg.is_error || msg.subtype !== 'success') return text || (Array.isArray(msg.errors) && msg.errors.join('\n')) || `Claude run ended with ${msg.subtype}`
-  if (/^API Error\b/.test(text)) return text
-  if (msg.num_turns === 0) return text || 'Claude run ended without a single turn'
+  const errors = Array.isArray(msg.errors) ? msg.errors.join('\n') : ''
+  if (msg.terminal_reason === 'api_error' || msg.terminal_reason === 'model_error' || (msg.subtype === 'success' && msg.is_error)) {
+    return text || errors || `Claude run failed (${msg.terminal_reason ?? 'error'})`
+  }
+  if (msg.num_turns === 0) return text || errors || 'Claude run ended without a single turn'
   return null
 }
 

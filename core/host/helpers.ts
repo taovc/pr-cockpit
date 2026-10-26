@@ -15,7 +15,7 @@ export async function runHelperText(opts: { prompt: string; cwd: string; model?:
         const content = msg.message?.content
         if (Array.isArray(content)) for (const b of content) if (b.type === 'text' && typeof b.text === 'string') text += b.text
       } else if (msg.type === 'result') {
-        const failure = claudeResultFailure(msg)
+        const failure = claudeResultFailure(msg) ?? (msg.is_error ? (typeof msg.result === 'string' && msg.result) || `claude helper ended with ${msg.subtype}` : null)
         if (failure) throw new Error(failure)
         if (typeof msg.result === 'string') result = msg.result
       }
