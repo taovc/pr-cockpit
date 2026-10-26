@@ -195,7 +195,7 @@ async function doPreview(force = false) {
 async function confirmPost() {
   busy.value = 'post'
   try {
-    const res = await $fetch<{ url: string }>(`/api/reviews/${rid.value}/post`, { method: 'POST', body: { dryRun: false } })
+    const res = await $fetch<{ url: string }>(`/api/reviews/${rid.value}/post`, { method: 'POST', body: { dryRun: false, acceptLangWarnings: true } })
     if (!alive) return
     preview.value = null; live.value = t('review.published', { url: res.url }); await load()
   } catch (e: any) { if (alive) live.value = e?.data?.statusMessage || t('review.publishFailed') }
@@ -427,7 +427,7 @@ function skipReasonLabel(s: string) { const k = SKIP_REASON[s]; return k ? t(k) 
           <div v-if="preview.warnings?.length" class="text-xs mb-2 border border-warning rounded p-2 bg-warning/10">
             <div class="text-warning mb-1">{{ $t('review.langWarnTitle', { count: preview.warnings.length }) }}</div>
             <div v-for="w in preview.warnings" :key="w.fid + w.kind" class="text-toned">
-              · {{ w.fid }} <span class="text-dimmed">— {{ w.kind === 'failed' ? $t('review.langWarnFailed') : $t('review.langWarnLeak') }}</span>
+              · {{ w.fid === 'notes' ? $t('review.globalNotesLabel') : w.fid }} <span class="text-dimmed">— {{ w.kind === 'untranslated' ? $t('review.langWarnLeak') : w.fid === 'notes' ? $t('review.langWarnNotesFailed') : $t('review.langWarnFailed') }}</span>
               <span v-if="w.sample" class="text-dimmed">: {{ w.sample }}</span>
             </div>
           </div>

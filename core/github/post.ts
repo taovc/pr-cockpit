@@ -51,19 +51,15 @@ function planFinding(f: PostFinding): Plan {
   return { action: 'comment', kind: 'normal' }
 }
 
-// What is published has to be English, and the model sometimes hands back a comment that is still in the source
-// language — measured on the re-review branches, where the input is a long source-language verdict and the answer
-// mirrored it title, prose and all. The prompt says "translate" everywhere now; this is the reader-side check, so a
-// comment that slipped through gets one corrective pass and, failing that, a warning in the preview.
-//
-// Code is exempt: a review quotes code for a living, and a Chinese string literal or a path inside backticks is
-// supposed to survive verbatim. So the check runs over the prose only — fenced blocks, inline code spans and our own
-// HTML marker removed first.
+// Posted text must be English. Only prose is checked: fences, code-like inline spans and our HTML marker are exempt.
 const CJK = /[\u3400-\u4dbf\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/
+// A short literal or identifier; a sentence wrapped in backticks is still prose.
+const codeLike = (s: string) => s.length <= 40 && !/[，。！？；：]/.test(s)
+
 export function untranslatedLine(body: string): string | null {
   const prose = (body || '')
     .replace(/```[\s\S]*?```/g, '')
-    .replace(/`[^`\n]*`/g, '')
+    .replace(/`([^`\n]*)`/g, (_m, inner: string) => (codeLike(inner) ? '' : inner))
     .replace(/<!--[\s\S]*?-->/g, '')
   return prose.split('\n').map((l) => l.trim()).find((l) => CJK.test(l)) ?? null
 }
@@ -101,9 +97,32 @@ function parseLoc(loc: string | null): { path: string; line: number } | null {
   return { path: m[1]!, line: Number(m[2]) }
 }
 
-// Translate the Chinese findings into English PR comment bodies (content published to GitHub is in English). One-shot text generation.
-// Routed by the project's provider: claude goes through `claude --print` (prompt fed via stdin, so the server never hangs waiting on stdin);
-// codex goes through the Codex SDK's one-shot run(). **Never mixed**: a codex project's translations also come from codex.
+// Drop a ```markdown wrapper around the whole answer; a code block that merely ends the body keeps its fence.
+export function stripWrapperFence(t: string): string {
+  const m = /^```(?:markdown|md)?[ \t]*\n([\s\S]*?)\n?```\s*$/i.exec((t || '').trim())
+  return (m ? m[1]! : t || '').trim()
+}
+
+// One corrective pass when the answer still carries the source language; if that pass fails, keep the first answer.
+export function makePrintEnglish(print: (prompt: string) => Promise<string>): (prompt: string) => Promise<string> {
+  return async (prompt) => {
+    const out = stripWrapperFence(await print(prompt))
+    const leak = untranslatedLine(out)
+    if (!leak) return out
+    try {
+      return stripWrapperFence(await print(`The English translation below still contains text in the source language. Rewrite it so that ALL prose — including the bold title line — is professional English. Only file paths, line numbers, identifiers and code may stay as they are. A literal value quoted from the code (a string, an identifier) stays as-is inside backticks; never put a sentence in backticks to keep it untranslated. Output ONLY the corrected text, nothing else.
+
+STILL UNTRANSLATED: ${leak}
+
+TEXT TO CORRECT:
+${out}`))
+    } catch {
+      return out
+    }
+  }
+}
+
+// Findings → English PR comment bodies, one-shot per finding in the project's own provider (never mixed).
 async function claudePrint(model: string, effort: string | undefined, prompt: string, cwd?: string): Promise<string> {
   return runHelperText({ prompt, cwd: cwd || process.cwd(), model: model || 'sonnet', effort, timeoutMs: 120_000 })
 }
@@ -112,10 +131,7 @@ function makePrint(provider: ReviewProvider, model: string, effort: string | und
   return (prompt) => claudePrint(model, effort, prompt, cwd)
 }
 
-// Every branch below hands the model source-language text and asks for English back — but only the "normal" branch
-// ever said "translate". The re-review branches just said "write professional English markdown" while handing over a
-// long source-language verdict, and the model mirrored its input: whole comments went out in the reviewer's own
-// language, not just a stray title. So the instruction is stated once here and appended to all of them.
+// Appended to every prompt branch: each one hands over source-language text.
 const TO_ENGLISH = `Translate everything into professional English — the input may be in any language, the output must not be. EVERY piece of prose is English, the bold title line included; a title that opens with an identifier is still prose, so carry the identifier over and translate the words around it. What stays verbatim is only identifiers, file paths, line numbers and anything inside backticks or code fences — never a whole sentence or title.`
 
 // Each finding is translated independently in parallel (every call emits little output, a few seconds) → wall clock ≈ the slowest one, not the sum.
@@ -135,21 +151,7 @@ async function translate(
   const failed: string[] = [] // a translation that threw: its finding would otherwise be posted in the source language
   let globalNotesEn = ''
 
-  const strip = (t: string) => t.replace(/^```(?:markdown|md)?\s*/i, '').replace(/```\s*$/i, '').trim()
-
-  // One corrective pass when the answer comes back still carrying the source language, naming the line it left behind.
-  // Cheap next to re-running the whole post by hand, and it catches the case the prompt alone doesn't.
-  const printEnglish = async (prompt: string): Promise<string> => {
-    const out = strip(await print(prompt))
-    const leak = untranslatedLine(out)
-    if (!leak) return out
-    return strip(await print(`The English translation below still contains text in the source language. Rewrite it so that ALL prose — including the bold title line — is professional English. Only file paths, line numbers, identifiers and text inside backticks or code fences may stay as they are; everything else must be English. If a piece of source-language text is a literal value quoted from the code, keep it as-is and wrap it in backticks. Output ONLY the corrected text, nothing else.
-
-STILL UNTRANSLATED: ${leak}
-
-TEXT TO CORRECT:
-${out}`))
-  }
+  const printEnglish = makePrintEnglish(print)
 
   if (globalNotes.trim()) {
     tasks.push(
@@ -237,9 +239,14 @@ export type AssembledReview = {
   mode: 'review' | 'comment' | 'mixed'
   // Checked items not posted because of their recheck status (replied without a note / retracted) → shown in the preview so the user doesn't think they were dropped
   skipped: { fid: string; title: string; reason: 'replied-no-note' | 'retracted' }[]
-  // Findings whose English is not trustworthy: the translation threw, or it came back still carrying the source
-  // language. Surfaced in the preview — what goes on a PR should not silently be in the reviewer's own language.
+  // Items whose English is not trustworthy (translation threw, or still in the source language); fid 'notes' = the preface.
   warnings: { fid: string; kind: 'failed' | 'untranslated'; sample: string }[]
+}
+
+// Unattended publishes stop on a language warning; a human publishing after the preview may accept it.
+export function languageHold(warnings: AssembledReview['warnings'] | undefined, accepted: boolean): string | null {
+  if (accepted || !warnings?.length) return null
+  return `有 ${warnings.length} 条没转成英文，未发布；请在预览里确认后手动发布`
 }
 
 export async function assembleReview(opts: {
@@ -253,8 +260,7 @@ export async function assembleReview(opts: {
   diff: string
 }): Promise<AssembledReview> {
   const { globalNotesEn, bodies, untranslated, failed } = await translate(opts.provider === 'codex' ? 'codex' : 'claude', opts.model, opts.effort, opts.cwd, opts.codexServiceTier, opts.findings, opts.globalNotes)
-  // `bodies[fid] || f.title` is the last resort, and f.title is in the review's own language: whenever it is reached,
-  // or a translation came back still carrying its source language, say so instead of publishing it quietly.
+  // A failed finding falls back to its source-language title; a failed preface is left out.
   const warnings: AssembledReview['warnings'] = [
     ...failed.map((fid) => ({ fid, kind: 'failed' as const, sample: '' })),
     ...untranslated.map((u) => ({ fid: u.fid, kind: 'untranslated' as const, sample: u.sample })),

@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { and, asc, eq, inArray } from 'drizzle-orm'
 import { z } from 'zod'
 import { schema } from '~core/db/client'
-import { assembleReview, postReview, type PostFinding } from '~core/github/post'
+import { assembleReview, languageHold, postReview, type PostFinding } from '~core/github/post'
 import { fetchPrDiff } from '~core/github/gh'
 
 // Publish the review comment. dryRun=true only returns the assembled preview (the default); only dryRun=false actually posts to GitHub.
@@ -11,11 +11,12 @@ import { fetchPrDiff } from '~core/github/gh'
 const Body = z.object({
   dryRun: z.boolean().default(true).catch(true),
   force: z.boolean().default(false).catch(false),
+  acceptLangWarnings: z.boolean().default(false).catch(false), // set by the UI after the user saw the preview
 })
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')!
-  const { dryRun, force } = Body.parse((await readBody(event)) || {})
+  const { dryRun, force, acceptLangWarnings } = Body.parse((await readBody(event)) || {})
   const d = db()
 
   const review = d.select().from(schema.reviews).where(eq(schema.reviews.id, id)).get()
@@ -92,9 +93,11 @@ export default defineEventHandler(async (event) => {
       .digest('hex')
 
     let assembled: any
-    const usedCache = !force && review.previewSig === sig && !!review.previewJson
+    const cached = !force && review.previewSig === sig && review.previewJson ? JSON.parse(review.previewJson) : null
+    // A preview retries translations that failed last time; a publish posts exactly what the preview showed.
+    const usedCache = !!cached && !(dryRun && cached.warnings?.some((w: any) => w.kind === 'failed'))
     if (usedCache) {
-      assembled = JSON.parse(review.previewJson!) // cache hit, no re-translation
+      assembled = cached
     } else {
       const { diff } = await fetchPrDiff(project.repo, review.prNumber)
       // Translation follows the project's provider (never mixed) and its configured model, at a low reasoning effort.
@@ -115,6 +118,9 @@ export default defineEventHandler(async (event) => {
     }
 
     if (dryRun) return { dryRun: true, assembled, cached: usedCache }
+
+    const hold = languageHold(assembled.warnings, acceptLangWarnings)
+    if (hold) throw createError({ statusCode: 422, statusMessage: hold })
 
     // Every checked item was filtered out by its recheck status (reply-only with no response / retracted) → nothing left to post, don't post an empty review
     if (!assembled.comments.length && !String(assembled.body || '').trim()) {

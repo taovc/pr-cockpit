@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict'
-import { untranslatedLine } from '../core/github/post'
+import { languageHold, makePrintEnglish, stripWrapperFence, untranslatedLine } from '../core/github/post'
 
-// What reaches a PR has to be English. The re-review branches of the post prompt used to hand the model a long
-// source-language verdict without ever saying "translate", and whole comments went out in Chinese — title, prose and
-// all. The prompt now says it in every branch; this is the reader-side guard that catches the times it still doesn't,
-// so the preview can warn instead of publishing quietly.
+// What reaches a PR has to be English: the reader-side check behind the preview warning and the unattended-publish hold.
 
 // ── prose in the source language is a leak, and the reported line is the offending one ──
 assert.equal(untranslatedLine('**[High] Fix the race**\n\nThe claim is not atomic.'), null)
@@ -47,5 +44,39 @@ assert.equal(
 
 // ── CJK punctuation and fullwidth forms count as source language too ──
 assert.equal(untranslatedLine('The claim is not atomic（see below）'), 'The claim is not atomic（see below）')
+
+// ── a sentence wrapped in backticks is still prose ──
+assert.equal(
+  untranslatedLine('**[Medium] Unbounded read**\n\n`仍无上限约束，隐藏集依旧全量物化。`'),
+  '仍无上限约束，隐藏集依旧全量物化。',
+  'backticks do not launder a sentence',
+)
+
+// ── only a wrapper fence around the whole answer is stripped ──
+const endsWithCode = '**[Low] Hardcoded label**\n\nUse the key:\n\n```ts\nconst msg = "未知标签"\n```'
+assert.equal(stripWrapperFence(endsWithCode), endsWithCode, 'a body ending in a code block keeps its closing fence')
+assert.equal(untranslatedLine(stripWrapperFence(endsWithCode)), null, 'so the literal inside it is not reported')
+assert.equal(stripWrapperFence('```markdown\n**[High] Fix the race**\n```'), '**[High] Fix the race**')
+assert.equal(stripWrapperFence('```\n**[High] Fix the race**\n```\n'), '**[High] Fix the race**')
+
+// ── the corrective pass: retried once on a leak; if the retry fails, the first answer is kept ──
+const english = '**[High] Fix the race**\n\nThe claim is not atomic.'
+const leaky = '**[High] Fix the race**\n\n这里没翻译。'
+let calls = 0
+assert.equal(await makePrintEnglish(async () => { calls++; return english })('p'), english)
+assert.equal(calls, 1, 'no leak, no retry')
+calls = 0
+assert.equal(await makePrintEnglish(async () => (++calls === 1 ? leaky : english))('p'), english)
+assert.equal(calls, 2, 'a leak gets exactly one corrective pass')
+calls = 0
+assert.equal(await makePrintEnglish(async () => { if (++calls === 1) return leaky; throw new Error('timeout') })('p'), leaky, 'a failed retry keeps the mostly-English first answer')
+await assert.rejects(makePrintEnglish(async () => { throw new Error('down') })('p'), /down/, 'a failed first pass is still a failure')
+
+// ── unattended publishes hold on any warning; a human who saw the preview may accept it ──
+const warnings = [{ fid: 'F1', kind: 'failed' as const, sample: '' }]
+assert.equal(languageHold([], false), null)
+assert.equal(languageHold(undefined, false), null)
+assert.match(languageHold(warnings, false)!, /1 条没转成英文/)
+assert.equal(languageHold(warnings, true), null)
 
 console.log('✓ post language guard')

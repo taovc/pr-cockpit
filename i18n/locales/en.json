@@ -475,6 +475,7 @@
     "skippedTitle": "Not posted per re-review status ({count})",
     "langWarnTitle": "{count} item(s) did not come back in English — check before publishing",
     "langWarnFailed": "translation failed, falls back to the original title",
+    "langWarnNotesFailed": "translation failed; this preface will be left out",
     "langWarnLeak": "still in the source language",
     "skipReason": {
       "repliedNoNote": "reply only · no response note",

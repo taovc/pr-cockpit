@@ -475,6 +475,7 @@
     "skippedTitle": "按复审状态未发（{count}）",
     "langWarnTitle": "有 {count} 条没转成英文，发布前请检查",
     "langWarnFailed": "翻译失败，会按原文标题发",
+    "langWarnNotesFailed": "翻译失败，这段说明不会发出",
     "langWarnLeak": "仍带原文",
     "skipReason": {
       "repliedNoNote": "仅回复·未写回应 note",

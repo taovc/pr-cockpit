@@ -56,8 +56,7 @@ function addCard(kind: string, data: any, turnId: string | null, ts = new Date()
   cards.value.push({ key: `${turnId ?? '-'}:${++cardSeq}`, kind, data, ts, parent: data?.parent ?? null, turnId } as StreamEvent & { turnId: string | null })
 }
 function cardsFor(turnId: string): StreamEvent[] { return cards.value.filter((c) => (c as any).turnId === turnId) }
-// The trace of a turn (tool calls, thinking, subagents) is worth watching while it runs and noise once it is done: it
-// stays open while the turn streams and collapses when it ends; a click on the summary line pins either state per turn.
+// A turn's trace is open while it streams and collapsed after; a click pins either state.
 const cardsOpen = reactive<Record<string, boolean>>({})
 function cardsShown(turn: Turn): boolean { return cardsOpen[turn.id] ?? turn.status === 'streaming' }
 function toggleCards(turn: Turn) { cardsOpen[turn.id] = !cardsShown(turn) }

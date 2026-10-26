@@ -475,6 +475,7 @@
     "skippedTitle": "Non publié selon le statut de re-revue ({count})",
     "langWarnTitle": "{count} élément(s) ne sont pas revenus en anglais — vérifiez avant de publier",
     "langWarnFailed": "échec de la traduction, retombe sur le titre d'origine",
+    "langWarnNotesFailed": "traduction échouée ; ce préambule ne sera pas publié",
     "langWarnLeak": "encore dans la langue source",
     "skipReason": {
       "repliedNoNote": "réponse seule · pas de note",

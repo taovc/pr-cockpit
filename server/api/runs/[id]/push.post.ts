@@ -59,7 +59,7 @@ export default defineEventHandler(async (event) => {
       fixChangesStat(wt).catch(() => ({ filesChanged: 0, additions: 0, deletions: 0 })),
     ])
     const { merging, msg: mergeMsg } = await mergeState()
-    const genMsg = !dirty ? '' : merging ? (mergeMsg || `Merge into ${branch}`) : await genCommitMessage(resolveReviewConfig(d, project).translateModel, diff, wt)
+    const genMsg = !dirty ? '' : merging ? (mergeMsg || `Merge into ${branch}`) : await genCommitMessage(helperTargetOf(resolveReviewConfig(d, project)), diff, wt)
     return { dryRun: true, diff, truncated, message: genMsg, needsCommit: dirty, isMerge: merging, ...stat }
   }
 
@@ -87,7 +87,7 @@ export default defineEventHandler(async (event) => {
       else if (merging) await git(['commit', '--no-edit'])
       else {
         const { diff } = await fixChangesDiff(wt).catch(() => ({ diff: '' }))
-        await git(['commit', '-m', await genCommitMessage(resolveReviewConfig(d, project).translateModel, diff, wt)])
+        await git(['commit', '-m', await genCommitMessage(helperTargetOf(resolveReviewConfig(d, project)), diff, wt)])
       }
     }
     const headSha = (await git(['rev-parse', 'HEAD'])).stdout.trim()

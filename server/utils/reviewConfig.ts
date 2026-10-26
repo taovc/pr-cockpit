@@ -10,11 +10,8 @@ import { ensureSkillVersion } from '~core/skillVersions'
 // - claude projects: model = project.model || ANTHROPIC_MODEL (used for first review / recheck /
 //   feedback recheck / Skill / chat alike)
 // - codex projects: model = project.model || CODEX_MODEL (empty = the Codex SDK default)
-// translateModel / translateEffort (the mechanical rewriting when posting comments, and the one-shot
-// title/commit-message helpers): the project's own model — the same one the review ran on, so a model picked in the
-// project config is the model that writes what reaches GitHub — but at a low reasoning effort, because rewriting text
-// is not reviewing. TRANSLATE_MODEL pins a specific fast model instead; it names a claude model, so a codex project
-// ignores it and stays on its own model ("never mix").
+// translateModel / translateEffort (posting rewrites and one-shot helpers): the project's own model at low effort;
+// TRANSLATE_MODEL pins a claude model, which codex projects ignore.
 export function resolveReviewConfig(d: any, project: any) {
   const cfg = useRuntimeConfig()
   const provider: ReviewProvider = project.provider === 'codex' ? 'codex' : 'claude'
@@ -49,4 +46,9 @@ export function resolveReviewConfig(d: any, project: any) {
     effort: (project.effort || '') as string,
     codexServiceTier,
   }
+}
+
+// The provider/model one-shot helpers (commit message, feature title) run on.
+export function helperTargetOf(rc: ReturnType<typeof resolveReviewConfig>) {
+  return { provider: rc.provider, model: rc.translateModel, codexServiceTier: rc.codexServiceTier }
 }
