@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { CanUseTool, HookCallback, Options } from '@anthropic-ai/claude-agent-sdk'
@@ -60,10 +61,11 @@ export type ReviewOptionsSpec = {
   projectDirName?: string
   abort?: AbortController
   outputSchema?: Record<string, unknown> // JSON Schema the CLI validates the final message against (structured_output on the result)
+  baseBranch?: string // project instructions are read from origin/<baseBranch>; without it, from the files in cwd
 }
 
-// Review family: the user's configuration is loaded like the CLI, but the run is read-only by three independent layers
-// (see core/host/readonly.ts) and the operating contract is appended to Claude Code's own system prompt.
+// Review family: only the user's own configuration is loaded; the PR branch's CLAUDE.md and .claude/ (settings, env, skills,
+// agents) are not, since the author controls them. The base branch's CLAUDE.md / AGENTS.md are appended instead.
 export function buildReviewOptions(spec: ReviewOptionsSpec): Options {
   const bin = resolveClaudeExecutable()
   const env: Record<string, string | undefined> = { ...process.env }
@@ -75,7 +77,8 @@ export function buildReviewOptions(spec: ReviewOptionsSpec): Options {
     cwd: spec.cwd,
     ...(spec.model ? { model: spec.model } : {}),
     ...(spec.effort ? { effort: spec.effort as Options['effort'] } : {}),
-    systemPrompt: { type: 'preset', preset: 'claude_code', append: spec.methodology },
+    systemPrompt: { type: 'preset', preset: 'claude_code', append: withProjectRules(spec.methodology, projectRules(spec.cwd, spec.baseBranch)) },
+    settingSources: ['user'],
     permissionMode: 'default',
     canUseTool: makeReviewCanUseTool(),
     hooks: { PreToolUse: [{ hooks: [makeReviewGuardHook()] }] },
@@ -90,6 +93,29 @@ export function buildReviewOptions(spec: ReviewOptionsSpec): Options {
     ...(bin ? { pathToClaudeCodeExecutable: bin } : {}),
     ...(spec.abort ? { abortController: spec.abort } : {}),
   }
+}
+
+const RULE_FILES = ['CLAUDE.md', 'AGENTS.md']
+const RULE_MAX = 60_000
+
+// The project's instruction files as the base branch has them (or as they sit in cwd when no base branch is known).
+export function projectRules(cwd: string, baseBranch?: string): Array<{ name: string; text: string }> {
+  const out: Array<{ name: string; text: string }> = []
+  for (const name of RULE_FILES) {
+    let text = ''
+    try {
+      text = baseBranch
+        ? execFileSync('git', ['-C', cwd, 'show', `origin/${baseBranch}:${name}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10_000 })
+        : existsSync(join(cwd, name)) ? readFileSync(join(cwd, name), 'utf8') : ''
+    } catch { /* not on that branch */ }
+    if (text.trim()) out.push({ name, text: text.slice(0, RULE_MAX) })
+  }
+  return out
+}
+
+export function withProjectRules(methodology: string, rules: Array<{ name: string; text: string }>): string {
+  if (!rules.length) return methodology
+  return `${methodology}\n\n---\n\nProject instructions from the base branch (the PR branch's own CLAUDE.md, AGENTS.md and .claude/ are not loaded):\n\n${rules.map((r) => `## ${r.name}\n\n${r.text.trim()}`).join('\n\n')}`
 }
 
 export function projectMcpServerNames(cwd: string): string[] {

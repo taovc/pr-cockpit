@@ -1,6 +1,5 @@
 import type { CanUseTool, HookCallback } from '@anthropic-ai/claude-agent-sdk'
 import { isDangerousBash } from '../agent/guard'
-import { REVIEW_BASH_HELP, reviewBashVerdict } from '../agent/reviewBash'
 
 // Read-only policy for the review family (review / guided / recheck / skillgen). Three independent layers, any one of
 // which is enough on its own:
@@ -8,7 +7,6 @@ import { REVIEW_BASH_HELP, reviewBashVerdict } from '../agent/reviewBash'
 //   2. inline `settings` deny rules + disableAllHooks (the user's own hooks are the only vector that could execute code
 //      inside the review worktree) — REVIEW_DENY_RULES
 //   3. disallowedTools + canUseTool + permissionMode 'default' — REVIEW_DISALLOWED_TOOLS / reviewCanUseTool
-// Bash runs only allowlisted read commands (core/agent/reviewBash.ts), with the old blacklist kept as a second check.
 // MCP is never connected in a review; an MCP tool call is always denied.
 
 export const READONLY_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LS', 'Skill', 'TodoWrite', 'Task', 'Agent', 'TaskOutput', 'TaskStop', 'StructuredOutput']) // StructuredOutput = how the CLI delivers outputFormat json_schema results
@@ -28,12 +26,12 @@ export type Verdict = { ok: true } | { ok: false; reason: string }
 
 // The single decision function behind layers 1 and 3.
 export function reviewVerdict(toolName: string, input: unknown): Verdict {
+  // An isolated subagent makes the CLI run `git worktree add` itself, outside the Bash checks.
+  if ((toolName === 'Agent' || toolName === 'Task') && (input as any)?.isolation) return { ok: false, reason: `subagent isolation "${(input as any).isolation}" creates a git worktree` }
   if (READONLY_TOOLS.has(toolName)) return { ok: true }
   if (toolName === 'Bash') {
     const cmd = String((input as any)?.command ?? '')
-    const v = reviewBashVerdict(cmd)
-    if (!v.ok) return { ok: false, reason: `blocked "${cmd.slice(0, 100)}" (${v.reason}). ${REVIEW_BASH_HELP}` }
-    if (isDangerousBash(cmd)) return { ok: false, reason: `blocked "${cmd.slice(0, 100)}". ${REVIEW_BASH_HELP}` }
+    if (isDangerousBash(cmd)) return { ok: false, reason: `blocked "${cmd.slice(0, 100)}". This is the PR Cockpit read-only policy, not a missing file or a failed command; prefer the Read, Grep and Glob tools.` }
     return { ok: true }
   }
   if (toolName.startsWith('mcp__') || toolName === 'ListMcpResourcesTool' || toolName === 'ReadMcpResourceTool') return { ok: false, reason: `MCP is not available in reviews (tool ${toolName})` }

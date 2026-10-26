@@ -736,7 +736,7 @@
     "memoryDir": "记忆 / transcript 目录",
     "groups": {
       "switches": "PR Cockpit 自己的开关",
-      "switchesHint": "只有这两项存在 PR Cockpit 的数据库里、由本页修改；下面的一切都是 CLI 自己的报告，只读。",
+      "switchesHint": "PR Cockpit 只存一个开关：Claude 会话的 Claude in Chrome（Codex 没有）。下面的一切都是 CLI 自己的报告，只读。",
       "files": "启动时读入上下文的文件",
       "filesHintClaude": "磁盘上可能被读的文件 + CLI 报告实际进了上下文的文件（含自动记忆和真正被加载的 rules）。「未加载」只针对存在却没进上下文的 CLAUDE.md；rules 目录里只有被加载的文件才单独成行，带 paths 条件、这次没用到的不出现。不读 settings 内容。",
       "filesHintCodex": "磁盘上可能被读的文件 + app-server 报告实际注入的指令文件与生效的配置层。memories 目录协议不报告是否注入。",

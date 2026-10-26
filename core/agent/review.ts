@@ -74,7 +74,7 @@ Discipline (mandatory):
 ${outputSpec(opts.lang)}`
 }
 
-// Shared by the whole review family: read-only MCP allow list, memory directory pin and the stop handle (see core/host/options.ts).
+// Shared by the whole review family: memory directory pin and the stop handle (see core/host/options.ts).
 export type ReviewHostOptions = Pick<ReviewOptionsSpec, 'projectDirName' | 'abort'>
 
 export type ReviewAgentOptions = ReviewHostOptions & {
@@ -96,7 +96,7 @@ export type ReviewAgentOptions = ReviewHostOptions & {
 export async function runReviewAgent(opts: ReviewAgentOptions): Promise<{ result: ReviewResult; costUsd: number; raw: string; usage: ProviderUsage | null }> {
   const stream = query({
     prompt: buildReviewPrompt({ ...opts, lang: resolveLang(opts.lang) }),
-    options: buildReviewOptions({ cwd: opts.cwd, model: opts.model, effort: opts.effort, methodology: withContract(opts.methodology), maxTurns: 60, projectDirName: opts.projectDirName, abort: opts.abort, outputSchema: REVIEW_JSON_SCHEMA }),
+    options: buildReviewOptions({ cwd: opts.cwd, model: opts.model, effort: opts.effort, methodology: withContract(opts.methodology), maxTurns: 60, baseBranch: opts.defaultBranch, projectDirName: opts.projectDirName, abort: opts.abort, outputSchema: REVIEW_JSON_SCHEMA }),
   })
 
   let text = ''

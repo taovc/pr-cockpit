@@ -736,7 +736,7 @@
     "memoryDir": "dossier mémoire / transcript",
     "groups": {
       "switches": "Interrupteurs propres à PR Cockpit",
-      "switchesHint": "Seuls ces deux réglages vivent dans la base de PR Cockpit et se modifient ici ; tout ce qui suit est le rapport du CLI lui-même, en lecture seule.",
+      "switchesHint": "PR Cockpit ne stocke qu’un réglage : Claude in Chrome pour les sessions Claude (aucun pour Codex). Tout ce qui suit est le rapport du CLI, en lecture seule.",
       "files": "Fichiers lus dans le contexte au démarrage",
       "filesHintClaude": "Fichiers sur disque que le CLI peut lire + les fichiers qu’il rapporte réellement en contexte (mémoire automatique et rules effectivement chargées incluses). « non chargé » ne concerne qu’un CLAUDE.md présent mais non lu ; une rule n’a de ligne que si elle est chargée — une rule à condition paths non utilisée n’apparaît pas. Le contenu des settings n’est jamais lu.",
       "filesHintCodex": "Fichiers sur disque que Codex peut lire + les fichiers d’instructions que l’app-server rapporte comme injectés et les couches de config en vigueur. Le protocole ne dit pas si le dossier memories est injecté.",
