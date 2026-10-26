@@ -79,7 +79,7 @@ export function cliEnv(base: NodeJS.ProcessEnv = process.env): Record<string, st
 export function buildReviewOptions(spec: ReviewOptionsSpec): Options {
   const bin = resolveClaudeExecutable()
   const env = cliEnv()
-  if (spec.projectDirName) env.CLAUDE_CODE_PROJECT_DIR_NAME = spec.projectDirName // transcripts land in the project's dir; clean runs load no memory from it
+  if (spec.projectDirName) env.CLAUDE_CODE_PROJECT_DIR_NAME = spec.projectDirName // only honoured with CLAUDE_CONFIG_DIR set; clean runs load no memory either way
   const rules = spec.baseRules === false ? [] : projectRules(spec.cwd, spec.baseBranch)
   // No MCP in a review. The PR branch's own .mcp.json is also listed as disabled, in case strictMcpConfig ever stops
   // covering it: the CLI would otherwise spawn those servers at init, unseen by the three read-only layers.

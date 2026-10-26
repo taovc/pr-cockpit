@@ -431,7 +431,7 @@ export const prAutomation = sqliteTable('pr_automation', {
 export const runs = sqliteTable('runs', {
   id: text('id').primaryKey(),
   kind: text('kind', { enum: ['review', 'session'] }).notNull(),
-  subkind: text('subkind', { enum: ['review', 'guided', 'recheck', 'skillgen', 'session', 'helper', 'eval', 'verify'] }).notNull(),
+  subkind: text('subkind', { enum: ['review', 'guided', 'recheck', 'skillgen', 'session', 'helper', 'eval', 'verify', 'engine', 'context', 'check', 'tier'] }).notNull(),
   projectId: text('project_id'), // no FK: a run record must survive project deletion for the dashboard
   reviewId: text('review_id'),
   workspaceType: text('workspace_type', { enum: ['pr_worktree', 'branch_worktree', 'cwd'] }),
@@ -615,7 +615,7 @@ export const evalFindings = sqliteTable('eval_findings', {
   createdAt: text('created_at').notNull(),
 })
 
-// Rated findings and missed issues added by hand, kept when a fresh review replaces the findings (eval labels).
+// Rated AI findings copied before a fresh review replaces them, so the ratings survive as eval labels.
 export const findingLabels = sqliteTable('finding_labels', {
   id: text('id').primaryKey(),
   reviewId: text('review_id').notNull(),

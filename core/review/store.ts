@@ -21,7 +21,15 @@ export function replaceFindings(tx: any, schema: any, o: { reviewId: string; hea
   })
 }
 
-// Re-review needs AI findings to re-review; a review holding only hand-added misses gets a first pass.
-export function hasAiFindings(rows: Array<{ source?: string | null }>): boolean {
-  return rows.some((f) => f.source !== 'human')
+
+// 'adjusted' on re-review: the new wording replaces the old; a scope finding becomes "unsure" until a human looks.
+export function adjustedPatch(old: { tier?: string | null; source?: string | null }, r: Record<string, unknown>): Record<string, unknown> | null {
+  const patch: Record<string, unknown> = {}
+  for (const k of ['severity', 'title', 'location', 'problem', 'detail', 'fix'] as const) {
+    const v = r[k]
+    if (typeof v === 'string' && v.trim()) patch[k] = v
+  }
+  if (!Object.keys(patch).length) return null
+  const scope = old.tier != null || old.source != null
+  return { ...patch, verifyStatus: scope ? 'unsure' : null, verifyNote: scope ? '复审时改写过，未重新核对' : null }
 }

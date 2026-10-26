@@ -6,6 +6,7 @@ import { fetchPrMeta } from '~core/github/gh'
 import { resolveLang } from '~core/agent/lang'
 import { recordRoundInstruction, reviewHistoryRootFor } from '~core/agent/reviewHistory'
 import { nanoid } from 'nanoid'
+import { hasAiFindings } from '~core/review/findingRules'
 
 // Trigger a re-review (the author pushed again after our comment and we want the AI to check whether it was fixed)
 export default defineEventHandler(async (event) => {
@@ -17,6 +18,9 @@ export default defineEventHandler(async (event) => {
   if (!review) throw createError({ statusCode: 404, statusMessage: 'review 不存在' })
   if (['queued', 'cloning', 'reviewing', 'recheck_requested', 'rechecking', 'posting'].includes(review.status)) {
     throw createError({ statusCode: 409, statusMessage: '该任务正在处理中，请等它完成再操作' })
+  }
+  if (!hasAiFindings(d.select().from(schema.findings).where(eq(schema.findings.reviewId, id)).all())) {
+    throw createError({ statusCode: 409, statusMessage: '还没有 AI 审核结果可复审，请先运行审核' })
   }
   const project = d.select().from(schema.projects).where(eq(schema.projects.id, review.projectId)).get()
   if (!project) throw createError({ statusCode: 404, statusMessage: '项目不存在' })

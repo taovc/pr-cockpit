@@ -64,10 +64,10 @@ export function referencedIssues(body: string, repo: string): number[] {
 }
 
 async function requirementOf(repo: string, prNumber: number, src: PrReviewSources): Promise<ReviewContext['requirement']> {
-  const issues = async (nums: number[]) => (await Promise.all(nums.slice(0, 3).map((n) => fetchIssueBody(repo, 'issue', n).then((i) => `#${n} ${i.title}\n\n${i.body}`).catch(() => '')))).filter(Boolean)
+  const issues = async (list: Array<{ repo: string; number: number }>) => (await Promise.all(list.slice(0, 3).map((x) => fetchIssueBody(x.repo, 'issue', x.number).then((i) => `${x.repo === repo ? '' : x.repo}#${x.number} ${i.title}\n\n${i.body}`).catch(() => '')))).filter(Boolean)
   const closing = await issues(src.closingIssues)
   if (closing.length) return { source: 'closing-issue', text: closing.join('\n\n---\n\n') }
-  const refs = await issues(referencedIssues(src.body, repo).filter((n) => n !== prNumber))
+  const refs = await issues(referencedIssues(src.body, repo).filter((n) => n !== prNumber).map((number) => ({ repo, number })))
   if (refs.length) return { source: 'referenced-issue', text: refs.join('\n\n---\n\n') }
   if (src.body.trim()) return { source: 'pr-body', text: src.body }
   if (src.commits.length) return { source: 'commits', text: src.commits.join('\n\n---\n\n') }
@@ -86,7 +86,13 @@ export function memoryIndexFor(projectDirName: string | undefined, home = homedi
 // origin/<branch>, never a stale local checkout.
 export async function otherReposFor(rules: RuleFile[], projects: Array<{ repo: string; localPath: string | null; defaultBranch: string }>, selfRepo: string): Promise<OtherRepo[]> {
   const text = rules.map((r) => r.text).join('\n')
-  const hits = projects.filter((p) => p.repo !== selfRepo && p.localPath && (text.includes(p.localPath) || text.includes(p.repo) || text.includes(p.localPath.split('/').pop()!)))
+  const named = (p: { repo: string; localPath: string | null }) => {
+    const path = p.localPath!.replace(/\/+$/, '')
+    const base = path.split('/').pop() ?? ''
+    const word = base.length >= 4 && new RegExp(`(^|[^\\w-])${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\w-])`).test(text)
+    return (path.length > 1 && text.includes(path)) || text.includes(p.repo) || word
+  }
+  const hits = projects.filter((p) => p.repo !== selfRepo && p.localPath && named(p))
   return Promise.all(hits.map(async (p) => {
     const fetched = await pexec('git', ['-C', p.localPath!, 'fetch', '--quiet', 'origin'], { timeout: 60_000 }).then(() => true, () => false)
     return { repo: p.repo, path: p.localPath!, defaultBranch: p.defaultBranch, fetched }

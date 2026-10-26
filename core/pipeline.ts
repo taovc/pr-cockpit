@@ -20,7 +20,7 @@ import type { FindingRow, RawFinding } from './review/assemble'
 import { contextDocPath } from './review/context'
 import { existsSync } from 'node:fs'
 import { engineLevelOf } from './review/engine'
-import { replaceFindings } from './review/store'
+import { adjustedPatch, replaceFindings } from './review/store'
 import type { ProviderUsage } from './runs/types'
 import {
   ROUND_EVENT, buildFindingIndex, buildHistoryDoc, computeRoundIntent, loadFindingHistory, writeReviewHistory,
@@ -151,7 +151,7 @@ async function runReviewJob(ctx: ReviewJobCtx) {
   reviewAborts.set(reviewId, abort)
   const hostOpts = { abort, projectDirName: projectDirNameFor(ctx.localPath) }
   const stageUsages: Array<ProviderUsage | null> = []
-  const t0 = Date.now()
+  let t0 = Date.now()
   let usageRecorded = false
   try {
     setStatus('cloning')
@@ -252,6 +252,7 @@ async function runReviewJob(ctx: ReviewJobCtx) {
     } else {
       // ── Fresh review, Claude: the scope-review pipeline (engine ∥ project context → check → tiers) ──
       emit('stage', 'AI 审核中：引擎 + 项目视角 → 核对 → 分档')
+      t0 = Date.now() // like the Codex path: the review's own time, without the worktree preparation
       const stage = stageRunner(ctx, review, wt.path, abort, stageUsages)
       const projects = (db.select().from(schema.projects).all() as any[]).map((p) => ({ repo: p.repo, localPath: p.localPath, defaultBranch: p.defaultBranch }))
       const s = await runScopeReview({
@@ -344,6 +345,7 @@ async function runRecheckJob(ctx: ReviewJobCtx) {
   const abort = new AbortController()
   reviewAborts.set(reviewId, abort)
   const hostOpts = { abort, projectDirName: projectDirNameFor(ctx.localPath) }
+  const recheckStageUsages: Array<ProviderUsage | null> = [] // check/tier stages of this re-review, until recorded on its row
   try {
     setStatus('rechecking')
     emit('stage', '复审：准备最新代码')
@@ -401,12 +403,12 @@ async function runRecheckJob(ctx: ReviewJobCtx) {
         return { id: `R${i + 1}`, source: 'recheck' as const, file: m?.[1] ?? '', line: m?.[2] ? Number(m[2]) : null, title: nf.title, scenario: [nf.problem, nf.detail].filter(Boolean).join('\n'), preExisting: false }
       })
       const contextPath = contextDocPath(ctx.historyRoot, reviewId)
-      const stageUsages: Array<ProviderUsage | null> = []
       classified = (await classifyFindings({
         cwd: wt.path, model: ctx.model, effort: ctx.effort || undefined, abort, onTool: (n, i) => emit('tool', `${n} ${i}`), baseBranch: ctx.defaultBranch, lang: ctx.lang,
-        contextPath: existsSync(contextPath) ? contextPath : null, raw, stage: stageRunner(ctx, review, wt.path, abort, stageUsages), emit: (m) => emit('stage', m), projectDirName: projectDirNameFor(ctx.localPath),
+        contextPath: existsSync(contextPath) ? contextPath : null, raw, stage: stageRunner(ctx, review, wt.path, abort, recheckStageUsages), emit: (m) => emit('stage', m), projectDirName: projectDirNameFor(ctx.localPath),
       })).rows
-      recordRunUsage(db, schema, runId, mergeUsage(stageUsages))
+      recordRunUsage(db, schema, runId, mergeUsage(recheckStageUsages))
+      recheckStageUsages.length = 0 // recorded
     }
     if (!db.select().from(schema.reviews).where(eq(schema.reviews.id, reviewId)).get()) {
       emit('error', '任务已被删除，丢弃复审结果'); finishRun(db, schema, runId, { status: 'stopped', error: 'task deleted' }); return
@@ -418,16 +420,8 @@ async function runRecheckJob(ctx: ReviewJobCtx) {
       for (const r of result.rechecks) {
         const old: any = byFid.get(r.fid)
         if (!old) continue // drop verdicts with no matching old finding (new issues go through newFindings)
-        // 'adjusted': take the correction; an older finding drops its verify verdict, a scope finding keeps check and tier.
-        if (r.stance === 'adjusted') {
-          const patch: Record<string, unknown> = old.source ? {} : { verifyStatus: null, verifyNote: null }
-          let changed = false
-          for (const k of ['severity', 'title', 'location', 'problem', 'detail', 'fix'] as const) {
-            const v = (r as any)[k]
-            if (typeof v === 'string' && v.trim()) { patch[k] = v; changed = true }
-          }
-          if (changed) tx.update(schema.findings).set(patch).where(eq(schema.findings.id, old.id)).run()
-        }
+        const patch = r.stance === 'adjusted' ? adjustedPatch(old, r as any) : null
+        if (patch) tx.update(schema.findings).set(patch).where(eq(schema.findings.id, old.id)).run()
         tx.insert(schema.findingRechecks).values({
           id: nanoid(), findingId: old.id, round, status: r.status, stance: r.stance,
           stanceReason: r.stanceReason || null, text: r.text || null, at: now(),
@@ -439,7 +433,7 @@ async function runRecheckJob(ctx: ReviewJobCtx) {
       let maxN = existing.reduce((m: number, f: any) => Math.max(m, parseInt(String(f.fid).replace(/\D/g, '')) || 0), 0)
       const fresh = classified
         ? classified.map((f) => ({ values: { severity: f.severity, title: f.title, location: f.location, problem: f.problem, detail: f.detail, fix: f.fix, tier: f.tier, evidence: f.evidence, source: 'recheck', verifyStatus: f.verifyStatus, verifyNote: f.verifyNote }, text: f.problem }))
-        : (result.newFindings ?? []).map((nf: any) => ({ values: { severity: nf.severity, title: nf.title, location: nf.location || null, problem: nf.problem || null, detail: nf.detail || null, fix: nf.fix || null }, text: nf.text || null }))
+        : (result.newFindings ?? []).map((nf: any) => ({ values: { severity: nf.severity, title: nf.title, location: nf.location || null, problem: nf.problem || null, detail: nf.detail || null, fix: nf.fix || null, ...(review?.pipelineMeta ? { source: 'recheck' } : {}) }, text: nf.text || null }))
       for (const n of fresh) {
         const id = nanoid()
         tx.insert(schema.findings).values({ ...n.values, id, reviewId, fid: `F${++maxN}`, introducedByPr: true, checked: false, notes: null, sortOrder: maxN, createdAt: now() }).run()
@@ -461,7 +455,10 @@ async function runRecheckJob(ctx: ReviewJobCtx) {
   } catch (e) {
     const stopped = abort.signal.aborted
     const message = stopped ? '已停止' : (e as Error).message
-    if (runId) { recordRunUsage(db, schema, runId, usageOfError(e)); finishRun(db, schema, runId, { status: stopped ? 'stopped' : 'error', error: message }) }
+    if (runId) {
+      recordRunUsage(db, schema, runId, mergeUsage([...recheckStageUsages, usageOfError(e)]))
+      finishRun(db, schema, runId, { status: stopped ? 'stopped' : 'error', error: message })
+    }
     setStatus('error', { error: message })
     emit('error', message)
   } finally {

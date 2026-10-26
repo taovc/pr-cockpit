@@ -1,8 +1,11 @@
+import { existsSync, readdirSync, rmSync, rmdirSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import { buildReviewOptions } from '../host/options'
 import { withContract } from '../agent/guard'
-import { ClaudeRunError, consumeClaudeRun, settleClaudeRun } from '../agent/claudeRun'
+import { ClaudeRunError, consumeClaudeRun, settleClaudeRun, usageOfError } from '../agent/claudeRun'
 import { mergeUsage } from '../agent/usage'
 import { jsonSchemaFor, parseStructured } from '../agent/structured'
 import type { ProviderUsage } from '../runs/types'
@@ -62,10 +65,13 @@ export async function runEngine(opts: {
   const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(), ENGINE_TIMEOUT_MS)
   const relay = () => abort.abort()
-  opts.abort?.signal.addEventListener('abort', relay, { once: true })
+  if (opts.abort?.signal.aborted) abort.abort() // stopped before this stage began
+  else opts.abort?.signal.addEventListener('abort', relay, { once: true })
   const t0 = Date.now()
   const trace: string[] = [] // system messages and results, kept in engine-report.md
+  let sessionId: string | undefined
   const note = (m: any) => {
+    if (typeof m?.session_id === 'string') sessionId ??= m.session_id
     if (m?.type !== 'system' && m?.type !== 'result') return
     trace.push(`${Math.round((Date.now() - t0) / 1000)}s ${m.type}/${m.subtype ?? ''}${m.task_id ? ` task=${m.task_id}` : ''}${m.status ? ` status=${m.status}` : ''}${m.is_backgrounded != null ? ` bg=${m.is_backgrounded}` : ''}${m.type === 'result' ? ` turns=${m.num_turns} ${String(m.result ?? '').slice(0, 80).replace(/\n/g, ' ')}` : ''}`)
   }
@@ -83,12 +89,12 @@ export async function runEngine(opts: {
     const review = await consumeClaudeRun(query({ prompt: turns, options: buildReviewOptions({ ...base, maxTurns: 30 }) }), {
       model: opts.model, onToolUse, onMessage: (m) => { note(m); gate.onMessage(m) }, onResult: gate.onResult,
     })
-    const sessionId = review.usage?.sessionId
+    sessionId ??= review.usage?.sessionId ?? undefined
     if (!sessionId) throw new ClaudeRunError('the engine session has no id to continue', review.usage)
     // 2. The same conversation, asked for its findings through the CLI-validated structured output.
     const out = await consumeClaudeRun(query({ prompt: STRUCTURE_TURN, options: buildReviewOptions({ ...base, maxTurns: 4, resume: sessionId, outputSchema: jsonSchemaFor(EngineResultSchema) }) }), {
       model: opts.model, onToolUse, onMessage: note,
-    })
+    }).catch((e) => { throw new ClaudeRunError((e as Error).message, mergeUsage([review.usage, usageOfError(e)])) }) // the review's own cost stays on the stage
     const usage = mergeUsage([review.usage, out.usage])
     const result = settleClaudeRun({ ...out, usage }, () => {
       if (out.structured == null) throw new Error('the engine returned no structured findings')
@@ -98,5 +104,26 @@ export async function runEngine(opts: {
   } finally {
     clearTimeout(timer)
     opts.abort?.signal.removeEventListener('abort', relay)
+    if (sessionId) dropTranscript(sessionId)
+  }
+}
+
+// The engine needs its transcript only to resume once. The CLI files it under a directory named after the worktree
+// (CLAUDE_CODE_PROJECT_DIR_NAME is honoured only with CLAUDE_CONFIG_DIR set), so remove this session's files and the
+// directory once it is empty; other sessions' files are never touched.
+export function dropTranscript(sessionId: string, configDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude')): void {
+  if (!/^[\w-]+$/.test(sessionId)) return
+  const root = join(configDir, 'projects')
+  let dirs: string[] = []
+  try { dirs = readdirSync(root) } catch { return }
+  for (const d of dirs) {
+    const dir = join(root, d)
+    const file = join(dir, `${sessionId}.jsonl`)
+    if (!existsSync(file)) continue
+    try {
+      rmSync(file, { force: true })
+      rmSync(join(dir, sessionId), { recursive: true, force: true })
+      if (!readdirSync(dir).length) rmdirSync(dir)
+    } catch { /* best effort */ }
   }
 }

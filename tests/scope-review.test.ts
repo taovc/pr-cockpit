@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { assembleFindings, fromContext, fromEngine, type RawFinding } from '../core/review/assemble'
 import { buildContextDoc, findReviewMd, memoryIndexFor, referencedIssues } from '../core/review/context'
-import { engineLevelOf, taskGate } from '../core/review/engine'
+import { dropTranscript, engineLevelOf, taskGate } from '../core/review/engine'
 import { isAutomatable } from '../core/automation/findings'
-import { hasAiFindings, replaceFindings } from '../core/review/store'
+import { adjustedPatch, replaceFindings } from '../core/review/store'
+import { hasAiFindings } from '../core/review/findingRules'
 import { contextDocPath } from '../core/review/context'
+import { runScopeReview, type ScopeDeps } from '../core/review/scope'
 import { getDb, schema } from '../core/db/client'
 import { eq } from 'drizzle-orm'
 
@@ -131,5 +133,65 @@ assert.deepEqual(labels.map((l) => [l.title, l.rating, l.headSha]), [['ai-rated'
 assert.equal(hasAiFindings([{ source: 'human' }]), false, 'only hand-added misses → the next run is a first pass')
 assert.equal(hasAiFindings([{ source: null }]), true)
 assert.ok(contextDocPath('/h', 'R').endsWith('/R/review-context.md'))
+
+// ── a re-review that rewrites a finding: scope findings become "unsure" (out of automation), older ones drop the verdict ──
+assert.deepEqual(adjustedPatch({ tier: 'must', source: 'engine' }, { title: 'new wording', problem: '' }), { title: 'new wording', verifyStatus: 'unsure', verifyNote: '复审时改写过，未重新核对' })
+assert.equal(adjustedPatch({ tier: 'must', source: null }, { title: 'x' })!.verifyStatus, 'unsure', 'the merge-conflict finding (tier, no source) too')
+assert.deepEqual(adjustedPatch({ tier: null, source: null }, { fix: 'f' }), { fix: 'f', verifyStatus: null, verifyNote: null })
+assert.equal(adjustedPatch({ tier: 'must' }, { title: '  ' }), null, 'nothing rewritten → nothing to patch')
+assert.equal(isAutomatable({ tier: 'must', source: 'engine', verifyStatus: 'unsure', severity: 'High' }), false)
+
+// ── the orchestrator's failure handling, with fake stages ──
+{
+  const hist = mkdtempSync(join(tmpdir(), 'scope-hist-'))
+  const ctxStub = { prTitle: 't', reviewMd: [], searched: [], requirement: { source: 'pr-body' as const, text: 'req' }, checks: [], memoryIndex: null, otherRepos: [] }
+  const finding = { file: 'a.ts', line: 1, title: 'ctx finding', consequence: 'c', lens: '', preExisting: false }
+  const calls: string[] = []
+  const deps = (o: { engineFails?: boolean; contextFails?: boolean; fallbackFails?: boolean }): ScopeDeps => ({
+    gather: async () => ctxStub,
+    engine: async () => { calls.push('engine'); if (o.engineFails) throw new Error('engine down'); return { findings: [], usage: null, text: '', trace: [] } },
+    context: async (a: any) => {
+      calls.push(a.correctnessLens ? 'fallback' : 'context')
+      if (a.correctnessLens ? o.fallbackFails : o.contextFails) throw new Error('context down')
+      return { result: { findings: a.correctnessLens ? [] : [finding] }, usage: null }
+    },
+    classify: async (a: any) => ({ rows: a.raw.map((f: any) => ({ title: f.title })), tier: { conclusion: '', notDone: '', reviewMdSuggestion: '', items: [] } }) as any,
+  })
+  const opts = (abort?: AbortController) => ({ cwd: hist, repo: 'o/r', prNumber: 1, defaultBranch: 'main', localPath: hist, projects: [], level: 'high' as const, historyRoot: hist, reviewId: 'R', abort, emit: () => {}, stage: (async (_: string, fn: any) => fn()) as any })
+
+  calls.length = 0
+  await assert.rejects(runScopeReview(opts(), deps({ engineFails: true, contextFails: true })), /都失败/)
+  assert.deepEqual(calls.sort(), ['context', 'engine'], 'both failed: no extra fallback pass is spent')
+
+  calls.length = 0
+  const kept = await runScopeReview(opts(), deps({ engineFails: true, fallbackFails: true }))
+  assert.deepEqual(kept.rows.map((r: any) => r.title), ['ctx finding'], 'a failed fallback keeps the first pass')
+  assert.equal(kept.meta.engineOk, false)
+  assert.equal(kept.requirement, 'req', 'the requirement is returned for re-reviews')
+
+  calls.length = 0
+  const stopped = new AbortController(); stopped.abort()
+  await assert.rejects(runScopeReview(opts(stopped), deps({})), /aborted/)
+  assert.deepEqual(calls, [], 'stopped before the stages: none starts')
+}
+
+// The engine's transcript is removed after the review; other sessions in the same directory stay.
+{
+  const cfg = mkdtempSync(join(tmpdir(), 'cfg-'))
+  const shared = join(cfg, 'projects', '-wt-a')
+  const alone = join(cfg, 'projects', '-wt-b')
+  mkdirSync(join(shared, 'eng-1', 'subagents'), { recursive: true })
+  writeFileSync(join(shared, 'eng-1.jsonl'), '{}')
+  writeFileSync(join(shared, 'other.jsonl'), '{}')
+  mkdirSync(join(alone, 'eng-2', 'subagents'), { recursive: true })
+  writeFileSync(join(alone, 'eng-2.jsonl'), '{}')
+  dropTranscript('eng-1', cfg)
+  dropTranscript('eng-2', cfg)
+  dropTranscript('../x', cfg)
+  assert.equal(existsSync(join(shared, 'eng-1.jsonl')), false)
+  assert.equal(existsSync(join(shared, 'eng-1')), false)
+  assert.equal(existsSync(join(shared, 'other.jsonl')), true, "another session's transcript stays")
+  assert.equal(existsSync(alone), false, 'an emptied directory is removed')
+}
 
 console.log('✓ scope review')

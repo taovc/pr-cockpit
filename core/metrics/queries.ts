@@ -92,7 +92,7 @@ export function precisionBySkillVersion(db: any, f: MetricsFilter = {}) {
            (SELECT SUM(ru.cost_usd) FROM runs ru JOIN reviews r2 ON r2.id = ru.review_id
               ${costWhere.clause ? costWhere.clause + ' AND' : 'WHERE'} ru.subkind NOT IN ${STAGE_SUBKINDS_SQL} AND r2.skill_version_id IS r.skill_version_id AND ${triaged.replace(/\br\./g, 'r2.')}) AS cost_usd
     FROM reviews r
-    LEFT JOIN findings fd ON fd.review_id = r.id AND COALESCE(fd.source, '') <> 'human' AND NOT (fd.source IS NOT NULL AND fd.tier IS NULL AND fd.verify_status = 'refuted') -- what the AI presented as holding
+    LEFT JOIN findings fd ON fd.review_id = r.id AND COALESCE(fd.source, '') <> 'human' AND COALESCE(fd.verify_status, '') <> 'refuted' -- what the AI presented as holding
     LEFT JOIN skill_versions sv ON sv.id = r.skill_version_id
     LEFT JOIN skills s ON s.id = sv.skill_id
     ${w.clause ? w.clause + ' AND' : 'WHERE'} ${triaged}
@@ -176,13 +176,13 @@ export function recentRuns(db: any, f: MetricsFilter = {}, page: { limit?: numbe
     FROM runs r
     LEFT JOIN projects p ON p.id = r.project_id
     LEFT JOIN skill_versions sv ON sv.id = r.skill_version_id
-    ${w.clause}
+    ${w.clause ? w.clause + ' AND' : 'WHERE'} r.subkind NOT IN ${STAGE_SUBKINDS_SQL}
     ORDER BY r.created_at DESC LIMIT ? OFFSET ?`, [...w.args, limit, offset])
 }
 
 export function countRuns(db: any, f: MetricsFilter = {}): number {
   const w = where(f, { project: 'project_id', ts: 'created_at' })
-  return Number(all<{ n: number }>(db, `SELECT COUNT(*) AS n FROM runs ${w.clause}`, w.args)[0]?.n ?? 0)
+  return Number(all<{ n: number }>(db, `SELECT COUNT(*) AS n FROM runs ${w.clause ? w.clause + ' AND' : 'WHERE'} subkind NOT IN ${STAGE_SUBKINDS_SQL}`, w.args)[0]?.n ?? 0)
 }
 
 export function metricsOverview(db: any, f: MetricsFilter = {}) {

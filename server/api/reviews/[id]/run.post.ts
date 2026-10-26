@@ -6,7 +6,7 @@ import { nanoid } from 'nanoid'
 import { reviewQueue } from '~core/queue'
 import { fetchPrMeta } from '~core/github/gh'
 import { resolveLang } from '~core/agent/lang'
-import { hasAiFindings } from '~core/review/store'
+import { hasAiFindings } from '~core/review/findingRules'
 
 // Trigger (or re-run) a review task: set it to queued and enqueue it.
 export default defineEventHandler(async (event) => {
