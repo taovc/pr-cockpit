@@ -6,6 +6,7 @@ import { dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { fetchIssueBody, fetchPrReviewSources, type PrReviewSources } from '../github/gh'
 import { reviewHistoryDir } from '../agent/reviewHistory'
+import { claudeConfigDir } from '../host/options'
 
 // What the review agents need about a PR, collected by code before any agent starts and written to one file.
 
@@ -74,9 +75,9 @@ async function requirementOf(repo: string, prNumber: number, src: PrReviewSource
   return { source: 'none', text: '' }
 }
 
-export function memoryIndexFor(projectDirName: string | undefined, home = homedir()): ReviewContext['memoryIndex'] {
+export function memoryIndexFor(projectDirName: string | undefined, configDir = claudeConfigDir()): ReviewContext['memoryIndex'] {
   if (!projectDirName) return null
-  const dir = join(home, '.claude', 'projects', projectDirName, 'memory')
+  const dir = join(configDir, 'projects', projectDirName, 'memory')
   const file = join(dir, 'MEMORY.md')
   if (!existsSync(file)) return null
   return { dir, text: readFileSync(file, 'utf8').slice(0, 12_000) }

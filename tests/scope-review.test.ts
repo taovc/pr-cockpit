@@ -89,7 +89,8 @@ assert.match(buildContextDoc({ repo: 'o/r', prNumber: 5, prTitle: '', defaultBra
 assert.equal(memoryIndexFor(undefined), null)
 mkdirSync(join(home, '.claude', 'projects', 'p', 'memory'), { recursive: true })
 writeFileSync(join(home, '.claude', 'projects', 'p', 'memory', 'MEMORY.md'), '- [a](a.md)')
-assert.equal(memoryIndexFor('p', home)?.text, '- [a](a.md)')
+assert.equal(memoryIndexFor('p', join(home, '.claude'))?.text, '- [a](a.md)')
+assert.equal(memoryIndexFor('p', join(home, 'elsewhere')), null, 'read from the CLI config dir, which CLAUDE_CONFIG_DIR may move')
 
 // ── the engine asks for structured findings only once the backgrounded /code-review task has finished ──
 let fired = 0

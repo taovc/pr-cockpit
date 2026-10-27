@@ -96,7 +96,7 @@ export type ReviewAgentOptions = ReviewHostOptions & {
 export async function runReviewAgent(opts: ReviewAgentOptions): Promise<{ result: ReviewResult; costUsd: number; raw: string; usage: ProviderUsage | null }> {
   const stream = query({
     prompt: buildReviewPrompt({ ...opts, lang: resolveLang(opts.lang) }),
-    options: buildReviewOptions({ cwd: opts.cwd, model: opts.model, effort: opts.effort, methodology: withContract(opts.methodology), maxTurns: 60, baseBranch: opts.defaultBranch, projectDirName: opts.projectDirName, abort: opts.abort, outputSchema: REVIEW_JSON_SCHEMA }),
+    options: await buildReviewOptions({ cwd: opts.cwd, model: opts.model, effort: opts.effort, methodology: withContract(opts.methodology), maxTurns: 60, baseBranch: opts.defaultBranch, projectDirName: opts.projectDirName, abort: opts.abort, outputSchema: REVIEW_JSON_SCHEMA }),
   })
 
   const out = await consumeClaudeRun(stream, {

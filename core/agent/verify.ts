@@ -91,7 +91,7 @@ export async function runVerifyAgent(opts: VerifyAgentOptions): Promise<{ result
   }
   const stream = query({
     prompt: buildVerifyPrompt(opts),
-    options: buildReviewOptions({ cwd: opts.cwd, model: opts.model, effort: opts.effort, methodology: withContract(methodology), maxTurns: 40, baseBranch: opts.defaultBranch, projectDirName: opts.projectDirName, abort: opts.abort, outputSchema: jsonSchemaFor(VerifyResultSchema) }),
+    options: await buildReviewOptions({ cwd: opts.cwd, model: opts.model, effort: opts.effort, methodology: withContract(methodology), maxTurns: 40, baseBranch: opts.defaultBranch, projectDirName: opts.projectDirName, abort: opts.abort, outputSchema: jsonSchemaFor(VerifyResultSchema) }),
   })
   const out = await consumeClaudeRun(stream, {
     model: opts.model,

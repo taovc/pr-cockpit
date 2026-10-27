@@ -1,9 +1,8 @@
 import { existsSync, readdirSync, rmSync, rmdirSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
-import { buildReviewOptions } from '../host/options'
+import { buildReviewOptions, claudeConfigDir } from '../host/options'
 import { withContract } from '../agent/guard'
 import { ClaudeRunError, consumeClaudeRun, settleClaudeRun, usageOfError } from '../agent/claudeRun'
 import { mergeUsage } from '../agent/usage'
@@ -87,14 +86,14 @@ export async function runEngine(opts: {
       yield { type: 'user', message: { role: 'user', content: `/code-review ${opts.level} ${opts.prNumber}` }, parent_tool_use_id: null } as SDKUserMessage
       await done // keep the session open until every task it started has finished
     })()
-    const review = await consumeClaudeRun(query({ prompt: turns, options: buildReviewOptions({ ...base, maxTurns: 30 }) }), {
+    const review = await consumeClaudeRun(query({ prompt: turns, options: await buildReviewOptions({ ...base, maxTurns: 30 }) }), {
       model: opts.model, onToolUse, onMessage: (m) => { note(m); gate.onMessage(m) }, onResult: gate.onResult,
     })
     if (timedOut) throw new ClaudeRunError('timed out', review.usage) // the first query swallowed the abort; no point resuming
     sessionId ??= review.usage?.sessionId ?? undefined
     if (!sessionId) throw new ClaudeRunError('the engine session has no id to continue', review.usage)
     // 2. The same conversation, asked for its findings through the CLI-validated structured output.
-    const out = await consumeClaudeRun(query({ prompt: STRUCTURE_TURN, options: buildReviewOptions({ ...base, maxTurns: 4, resume: sessionId, outputSchema: jsonSchemaFor(EngineResultSchema) }) }), {
+    const out = await consumeClaudeRun(query({ prompt: STRUCTURE_TURN, options: await buildReviewOptions({ ...base, maxTurns: 4, resume: sessionId, outputSchema: jsonSchemaFor(EngineResultSchema) }) }), {
       model: opts.model, onToolUse, onMessage: note,
     }).catch((e) => { throw new ClaudeRunError((e as Error).message, mergeUsage([review.usage, usageOfError(e)])) }) // the review's own cost stays on the stage
     const usage = mergeUsage([review.usage, out.usage])
@@ -114,7 +113,7 @@ export async function runEngine(opts: {
 }
 
 // After its one resume the engine's transcript goes; other sessions' files in that directory stay.
-export function dropTranscript(sessionId: string, configDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude')): void {
+export function dropTranscript(sessionId: string, configDir = claudeConfigDir()): void {
   if (!/^[\w-]+$/.test(sessionId)) return
   const root = join(configDir, 'projects')
   let dirs: string[] = []

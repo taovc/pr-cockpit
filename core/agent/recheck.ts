@@ -166,7 +166,7 @@ export async function runRecheckAgent(opts: RecheckAgentOptions): Promise<{ resu
   const prompt = buildRecheckPrompt(opts)
   const stream = query({
     prompt,
-    options: buildReviewOptions({ cwd: opts.cwd, model: opts.model, effort: opts.effort, methodology: withContract(opts.methodology, RECHECK_PROCEDURE), maxTurns: RECHECK_MAX_TURNS, baseBranch: opts.defaultBranch, projectDirName: opts.projectDirName, abort: opts.abort, outputSchema: RECHECK_JSON_SCHEMA }),
+    options: await buildReviewOptions({ cwd: opts.cwd, model: opts.model, effort: opts.effort, methodology: withContract(opts.methodology, RECHECK_PROCEDURE), maxTurns: RECHECK_MAX_TURNS, baseBranch: opts.defaultBranch, projectDirName: opts.projectDirName, abort: opts.abort, outputSchema: RECHECK_JSON_SCHEMA }),
   })
   let historyRead = false
   const out = await consumeClaudeRun(stream, {

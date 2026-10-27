@@ -16,7 +16,7 @@ type Out<T> = { result: T; usage: ProviderUsage | null }
 async function runAgent<T extends z.ZodType>(o: AgentBase & { system: string; prompt: string; schema: T; maxTurns: number; baseBranch?: string; baseRules?: boolean }): Promise<Out<z.infer<T>>> {
   const stream = query({
     prompt: o.prompt,
-    options: buildReviewOptions({ cwd: o.cwd, model: o.model, effort: o.effort, methodology: withContract(o.system), maxTurns: o.maxTurns, clean: true, projectDirName: o.projectDirName, baseBranch: o.baseBranch, baseRules: o.baseRules, abort: o.abort, outputSchema: jsonSchemaFor(o.schema) }),
+    options: await buildReviewOptions({ cwd: o.cwd, model: o.model, effort: o.effort, methodology: withContract(o.system), maxTurns: o.maxTurns, clean: true, projectDirName: o.projectDirName, baseBranch: o.baseBranch, baseRules: o.baseRules, abort: o.abort, outputSchema: jsonSchemaFor(o.schema) }),
   })
   const out = await consumeClaudeRun(stream, {
     model: o.model,

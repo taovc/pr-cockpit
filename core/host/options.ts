@@ -1,6 +1,8 @@
-import { execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
 import type { CanUseTool, HookCallback, Options } from '@anthropic-ai/claude-agent-sdk'
 import { resolveClaudeExecutable } from '../agent/claude-bin'
 import type { RunSpec } from './types'
@@ -43,6 +45,11 @@ export function buildOptions(spec: RunSpec, hooks: { canUseTool: CanUseTool; dan
 
 // Claude Code keys its per-project memory/transcript directory by the sanitised cwd. This names the project's main clone
 // for worktree runs, but the CLI only honours it when CLAUDE_CONFIG_DIR is set, so today worktrees keep their own directory.
+// Where the CLI keeps projects/ (transcripts, memory): CLAUDE_CONFIG_DIR when set, else ~/.claude.
+export function claudeConfigDir(env: NodeJS.ProcessEnv = process.env): string {
+  return env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude')
+}
+
 export function projectDirNameFor(localPath: string | null | undefined): string | undefined {
   if (!localPath) return undefined
   return localPath.replace(/[^a-zA-Z0-9]/g, '-')
@@ -77,11 +84,11 @@ export function cliEnv(base: NodeJS.ProcessEnv = process.env): Record<string, st
 }
 
 // Review family: only the user's own configuration is loaded; the PR branch's CLAUDE.md and .claude/ are author-controlled.
-export function buildReviewOptions(spec: ReviewOptionsSpec): Options {
+export async function buildReviewOptions(spec: ReviewOptionsSpec): Promise<Options> {
   const bin = resolveClaudeExecutable()
   const env = cliEnv()
   if (spec.projectDirName) env.CLAUDE_CODE_PROJECT_DIR_NAME = spec.projectDirName // only honoured with CLAUDE_CONFIG_DIR set; clean runs load no memory either way
-  const rules = spec.baseRules === false ? [] : projectRules(spec.cwd, spec.baseBranch)
+  const rules = spec.baseRules === false ? [] : await projectRules(spec.cwd, spec.baseBranch)
   // No MCP in a review. The PR branch's own .mcp.json is also listed as disabled, in case strictMcpConfig ever stops
   // covering it: the CLI would otherwise spawn those servers at init, unseen by the three read-only layers.
   const projectMcp = projectMcpServerNames(spec.cwd)
@@ -110,16 +117,17 @@ export function buildReviewOptions(spec: ReviewOptionsSpec): Options {
 }
 
 const RULE_FILES = ['CLAUDE.md', 'AGENTS.md']
+const pexec = promisify(execFile)
 const RULE_MAX = 60_000
 
 // The project's instruction files as the base branch has them (or as they sit in cwd when no base branch is known).
-export function projectRules(cwd: string, baseBranch?: string): Array<{ name: string; text: string }> {
+export async function projectRules(cwd: string, baseBranch?: string): Promise<Array<{ name: string; text: string }>> {
   const out: Array<{ name: string; text: string }> = []
   for (const name of RULE_FILES) {
     let text = ''
     try {
       text = baseBranch
-        ? execFileSync('git', ['-C', cwd, 'show', `origin/${baseBranch}:${name}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10_000 })
+        ? (await pexec('git', ['-C', cwd, 'show', `origin/${baseBranch}:${name}`], { encoding: 'utf8', timeout: 10_000, maxBuffer: 8 * 1024 * 1024 })).stdout
         : existsSync(join(cwd, name)) ? readFileSync(join(cwd, name), 'utf8') : ''
     } catch { /* not on that branch */ }
     if (text.trim()) out.push({ name, text: text.slice(0, RULE_MAX) })

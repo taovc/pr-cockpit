@@ -2,7 +2,6 @@
 import { reviewSectionRe } from '~core/agent/reviewSections'
 import { isRecheckResolved, stanceOf } from '~core/recheckAxes'
 import { isAutomatable } from '~core/automation/automatable'
-import { hasAiFindings } from '~core/review/findingRules'
 
 const props = defineProps<{ projectId: string; prNumber: number; reviewId: string | null }>()
 const emit = defineEmits<{ created: [id: string]; changed: [] }>()
@@ -361,7 +360,7 @@ async function copySuggestion() {
             <!-- Restarts a full review from scratch (replaces the AI findings) → inline confirmation. Available in error/draft. -->
             <button v-if="data.review.status === 'error' || data.review.status === 'draft'" class="bg-inverted text-inverted px-3 py-1 hover:bg-inverted/90 disabled:opacity-40" :disabled="running || !!busy" :title="$t('review.retryTitle')" @click="confirming = 'fresh'">{{ $t('review.retryBtn') }}</button>
             <button class="text-muted hover:text-highlighted disabled:opacity-40" :disabled="running || !!busy" :title="$t('review.rerunTitle')" @click="confirming = 'rerun'">{{ $t('review.rerunBtn') }}</button>
-            <button class="hover:text-highlighted disabled:opacity-40" :class="data.review.authorUpdated ? 'text-highlighted font-medium' : 'text-muted'" :disabled="running || !!busy || !hasAiFindings(data.findings)" :title="$t('review.recheckTitle')" @click="confirming = 'recheck'">{{ $t('review.recheckBtn') }}</button>
+            <button class="hover:text-highlighted disabled:opacity-40" :class="data.review.authorUpdated ? 'text-highlighted font-medium' : 'text-muted'" :disabled="running || !!busy" :title="$t('review.recheckTitle')" @click="confirming = 'recheck'">{{ $t('review.recheckBtn') }}</button>
             <button class="text-muted hover:text-error disabled:opacity-40" :disabled="running || !!busy" :title="$t('review.deleteTitle')" @click="confirming = 'delete'">{{ $t('review.deleteBtn') }}</button>
           </template>
         </div>
