@@ -12,7 +12,7 @@ type Finding = {
   location: string | null; problem: string | null; detail: string | null; fix: string | null
   introducedByPr: boolean; checked: boolean; notes: string | null; verifyStatus?: 'confirmed' | 'refuted' | 'unsure' | null; verifyNote?: string | null
   tier?: Tier | null; evidence?: string | null; source?: string | null; rating?: Rating | null
-  rechecks: { round: number; status: string; stance?: string | null; stanceReason?: string | null; text: string | null; at: string }[]
+  rechecks: { round: number; status: string; stance?: string | null; stanceReason?: string | null; fixedBy?: string | null; text: string | null; at: string }[]
 }
 type Tier = 'must' | 'decide' | 'later' | 'edge'
 type Rating = 'must' | 'later' | 'noise' | 'wrong'
@@ -195,19 +195,30 @@ function saveInstruction() {
 async function doPreview(force = false) {
   busy.value = 'preview'
   try {
-    const res = await $fetch<{ assembled: any }>(`/api/reviews/${rid.value}/post`, { method: 'POST', body: { dryRun: true, force } })
-    if (alive) preview.value = res.assembled
+    const res = await $fetch<{ assembled: any; head?: PostHead }>(`/api/reviews/${rid.value}/post`, { method: 'POST', body: { dryRun: true, force } })
+    if (alive) preview.value = { ...res.assembled, head: res.head ?? null }
   } catch (e: any) { if (alive) live.value = e?.data?.statusMessage || t('review.previewFailed') }
   finally { busy.value = '' }
 }
+// The PR moved since the review (or its head could not be read): the preview says so and publishing needs "post anyway".
+type PostHead = { reviewed: string | null; current: string | null; moved: boolean; error: string | null }
+const headBlocked = computed(() => !!(preview.value?.head?.moved || preview.value?.head?.error))
 async function confirmPost() {
   busy.value = 'post'
   try {
-    const res = await $fetch<{ url: string }>(`/api/reviews/${rid.value}/post`, { method: 'POST', body: { dryRun: false, acceptLangWarnings: true } })
+    const res = await $fetch<{ url: string }>(`/api/reviews/${rid.value}/post`, { method: 'POST', body: { dryRun: false, acceptLangWarnings: true, ignoreHeadMove: headBlocked.value } })
     if (!alive) return
     preview.value = null; live.value = t('review.published', { url: res.url }); await load()
-  } catch (e: any) { if (alive) live.value = e?.data?.statusMessage || t('review.publishFailed') }
-  finally { busy.value = '' }
+  } catch (e: any) {
+    if (!alive) return
+    const head = e?.data?.data?.head as PostHead | undefined
+    if (head && preview.value) preview.value = { ...preview.value, head } // moved after the preview: show it, ask again
+    live.value = e?.data?.statusMessage || t('review.publishFailed')
+  } finally { busy.value = '' }
+}
+async function recheckFromPreview() {
+  preview.value = null
+  await recheck()
 }
 // Delete the review task (local only; comments already posted on GitHub are kept) → back to "start review", can be run again. Especially useful after an error.
 async function deleteReview() {
@@ -453,6 +464,7 @@ async function copySuggestion() {
             </details>
             <div v-for="r in f.rechecks" :key="r.round" class="text-xs mt-2 border-l-2 border-default pl-2">
               <span class="font-medium">🔁 {{ $t('review.recheckRound', { round: r.round }) }} · {{ rcLabel(r.status) }}<template v-if="stanceOf(r)"> · {{ rcLabel(stanceOf(r)!) }}</template></span>
+              <a v-if="r.fixedBy" class="ml-1 text-dimmed hover:text-highlighted font-mono" :href="data.review.prUrl ? `${data.review.prUrl}/commits/${r.fixedBy}` : undefined" target="_blank" rel="noopener" :title="r.fixedBy">{{ $t('review.fixedBy', { sha: r.fixedBy.slice(0, 7) }) }}</a>
               <MarkdownBody v-if="r.text" :text="r.text" class="text-muted" />
               <div v-if="r.stanceReason" class="text-muted mt-0.5 flex gap-1"><span class="shrink-0">↳</span><MarkdownBody :text="r.stanceReason" /></div>
             </div>
@@ -515,13 +527,17 @@ async function copySuggestion() {
               </button>
               <button class="text-xs text-dimmed hover:text-highlighted" @click="preview = null">{{ $t('review.close') }}</button>
               <button class="text-xs bg-inverted text-inverted px-3 py-1 hover:bg-inverted/90 disabled:opacity-40" :disabled="busy === 'post'" @click="confirmPost">
-                {{ busy === 'post' ? $t('review.publishing') : $t('review.confirmPublish') }}
+                {{ busy === 'post' ? $t('review.publishing') : headBlocked ? $t('review.publishAnyway') : $t('review.confirmPublish') }}
               </button>
             </div>
           </div>
           <div v-if="preview.skipped?.length" class="text-xs mb-2 border border-default rounded p-2 bg-muted">
             <div class="text-dimmed mb-1">{{ $t('review.skippedTitle', { count: preview.skipped.length }) }}</div>
             <div v-for="s in preview.skipped" :key="s.fid" class="text-toned">· {{ s.fid }} {{ s.title }} <span class="text-dimmed">— {{ skipReasonLabel(s.reason) }}</span></div>
+          </div>
+          <div v-if="headBlocked" class="text-xs mb-2 border border-warning rounded p-2 bg-warning/10 flex items-start justify-between gap-3">
+            <span class="text-warning">{{ preview.head.moved ? $t('review.headMoved', { sha: String(preview.head.current).slice(0, 7) }) : $t('review.headUnknown', { error: preview.head.error }) }}</span>
+            <button v-if="preview.head.moved" class="shrink-0 border border-accented px-2 py-0.5 hover:bg-muted disabled:opacity-40" :disabled="!!busy" @click="recheckFromPreview">{{ $t('review.recheckFirst') }}</button>
           </div>
           <!-- What goes on the PR has to be English: say which items came back untranslated (or failed) instead of publishing them quietly -->
           <div v-if="preview.warnings?.length" class="text-xs mb-2 border border-warning rounded p-2 bg-warning/10">

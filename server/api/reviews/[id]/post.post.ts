@@ -4,7 +4,8 @@ import { and, asc, eq, inArray } from 'drizzle-orm'
 import { z } from 'zod'
 import { schema } from '~core/db/client'
 import { assembleReview, languageHold, postReview, type PostFinding } from '~core/github/post'
-import { fetchPrDiff } from '~core/github/gh'
+import { fetchPrDiff, fetchPrMeta } from '~core/github/gh'
+import { headMoved } from '~core/review/postGate'
 
 // Publish the review comment. dryRun=true only returns the assembled preview (the default); only dryRun=false actually posts to GitHub.
 // The preview is cached by an "input signature": if the signature is unchanged it is reused as-is without re-translating; publishing reuses the preview too, so it never runs twice.
@@ -12,11 +13,12 @@ const Body = z.object({
   dryRun: z.boolean().default(true).catch(true),
   force: z.boolean().default(false).catch(false),
   acceptLangWarnings: z.boolean().default(false).catch(false), // set by the UI after the user saw the preview
+  ignoreHeadMove: z.boolean().default(false).catch(false), // the user chose to post although the PR moved since the review
 })
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')!
-  const { dryRun, force, acceptLangWarnings } = Body.parse((await readBody(event)) || {})
+  const { dryRun, force, acceptLangWarnings, ignoreHeadMove } = Body.parse((await readBody(event)) || {})
   const d = db()
 
   const review = d.select().from(schema.reviews).where(eq(schema.reviews.id, id)).get()
@@ -50,6 +52,18 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
+    // The comment answers the code the review saw. A PR that moved since then needs a re-review first (fixed findings
+    // are unticked by it), unless the user posts anyway; a head that cannot be read blocks an unconfirmed post.
+    const reviewed = review.headSha || null
+    let current: string | null = null
+    let headError: string | null = null
+    try { current = (await fetchPrMeta(project.repo, review.prNumber)).headSha || null } catch (e) { headError = (e as Error).message }
+    const head = { reviewed, current, moved: headMoved(reviewed, current), error: headError }
+    if (!dryRun && !ignoreHeadMove) {
+      if (head.moved) throw createError({ statusCode: 409, statusMessage: `PR 在审核后有新提交（${String(current).slice(0, 7)}），请先复审再发布`, data: { headMoved: true, head } })
+      if (headError) throw createError({ statusCode: 502, statusMessage: `无法确认 PR 的最新提交，未发布：${headError}`, data: { headUnknown: true, head } })
+    }
+
     const checked = d
       .select()
       .from(schema.findings)
@@ -118,7 +132,7 @@ export default defineEventHandler(async (event) => {
         .run()
     }
 
-    if (dryRun) return { dryRun: true, assembled, cached: usedCache }
+    if (dryRun) return { dryRun: true, assembled, cached: usedCache, head }
 
     // The user's acceptance covers the preview they saw: a publish that re-assembled is checked again.
     const hold = languageHold(assembled.warnings, acceptLangWarnings && usedCache)
@@ -149,6 +163,9 @@ export default defineEventHandler(async (event) => {
       .where(eq(schema.reviews.id, id))
       .run()
     d.insert(schema.events).values({ id: nanoid(), reviewId: id, ts: now, kind: 'posted', message: url }).run()
+    // A human posted what automation held back: automatic posting may resume for this PR.
+    d.update(schema.prAutomation).set({ postHeld: false, updatedAt: now })
+      .where(and(eq(schema.prAutomation.projectId, review.projectId), eq(schema.prAutomation.prNumber, review.prNumber), eq(schema.prAutomation.postHeld, true))).run()
 
     return { dryRun: false, url, mode: assembled.mode }
   } catch (e) {

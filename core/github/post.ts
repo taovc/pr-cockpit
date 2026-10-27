@@ -128,6 +128,17 @@ function makePrint(provider: ReviewProvider, model: string, effort: string | und
   return (prompt) => runProviderHelperText({ provider, model, codexServiceTier }, { prompt, cwd: cwd || process.cwd(), effort, timeoutMs: 120_000 })
 }
 
+// The team's comment header is "**[Severity(, pre-existing)] title**"; the bracket comes from the finding, not the model.
+export function teamLabel(f: { severity: string; introducedByPr: boolean }): string {
+  return f.introducedByPr ? f.severity : `${f.severity}, pre-existing`
+}
+export function withTeamLabel(body: string, label: string): string {
+  return body.replace(/^(\s*)\*\*\[[^\]\n]*\]/, `$1**[${label}]`)
+}
+
+// The rest of a team comment: 2–4 sentences, then the fix direction.
+const TEAM_SHAPE = `Then a blank line and 2–4 plain sentences in total — compress the detail, do not carry every fact over; a short list or code block only when the finding cannot be understood without it, and it counts as one sentence. Then a blank line and one line starting with "Suggestion:" — one or two sentences on the direction of a fix.`
+
 // Appended to every prompt branch: each one hands over source-language text.
 const TO_ENGLISH = `Translate everything into professional English — the input may be in any language, the output must not be. EVERY piece of prose is English, the bold title line included; a title that opens with an identifier is still prose, so carry the identifier over and translate the words around it. What stays verbatim is only identifiers, file paths, line numbers and anything inside backticks or code fences — never a whole sentence or title.`
 
@@ -174,6 +185,7 @@ ${globalNotes}`)
       severity: f.severity, title: f.title, problem: f.problem, detail: f.detail,
       fix: f.fix, preexisting: !f.introducedByPr,
     }
+    const label = teamLabel(f)
     const hasNote = !!(f.notes && f.notes.trim())
     // note = the reviewer's instruction for how to write THIS comment (adjust tone / keep or drop content / add context / soften wording…); weave it in, never paste it verbatim
     const noteClause = hasNote
@@ -192,7 +204,7 @@ RE-REVIEW NOTE (source language): ${verdict}`
     } else if (plan.kind === 'partial') {
       // Partially fixed / fixed incorrectly: only say what's still missing
       prompt = `Write ONE finding of a GitHub PR review as professional English markdown. This finding was RE-REVIEWED: the author's latest changes only PARTIALLY addressed it (or addressed it incorrectly). Focus the comment on WHAT IS STILL MISSING OR WRONG — briefly acknowledge what was done, then state precisely what remains. Do NOT restate the whole original finding.
-Output ONLY the markdown body — a bold line "**[<severity>] <translated title>**", then the remaining problem, then a fix section.
+Output ONLY the markdown body: the bold line "**[${label}] <title in English>**". ${TEAM_SHAPE} The suggestion covers only what remains.
 ${TO_ENGLISH}${noteClause}
 
 RE-REVIEW VERDICT (source language): ${verdict}
@@ -200,7 +212,7 @@ ORIGINAL FINDING (source language): ${JSON.stringify(one)}`
     } else if (plan.kind === 'reply') {
       // Author replied without changing code: post a response to that reply (here the note is what the reviewer wants to say back, not an instruction on how to write the comment)
       prompt = `Write ONE GitHub PR-review comment as professional English markdown. Context: you previously raised the finding below; the author REPLIED in the PR but did NOT change the code. Respond to the author's reply and move the discussion forward — concede, push back with reasoning, or ask for clarification — per the reviewer's response. Do NOT just restate the original finding.
-Output ONLY the markdown body (you may open with a bold "**[<severity>] <translated title>**" line).
+Output ONLY the markdown body (you may open with the bold line "**[${label}] <title in English>**").
 ${TO_ENGLISH}
 
 AUTHOR'S REPLY / RE-REVIEW VERDICT (source language): ${verdict}
@@ -209,7 +221,7 @@ ORIGINAL FINDING for context (source language): ${JSON.stringify(one)}`
     } else {
       // normal: translate the original finding (original behavior)
       prompt = `Write ONE finding of a GitHub PR review as professional English markdown. Output ONLY the markdown body — no preamble, no outer code fences.
-Format: a bold line "**[<severity>] <translated title>**", then the problem, then detail (keep any lists), then a fix section. If "preexisting" is true, note "(pre-existing, not introduced by this PR)".
+Format: the bold line "**[${label}] <title in English>**". ${TEAM_SHAPE} The sentences say what is wrong and its concrete consequence or failure scenario (from problem and detail); the suggestion comes from fix, or from the problem when fix is empty.
 ${TO_ENGLISH}${noteClause}
 
 FINDING (source language):
@@ -218,7 +230,7 @@ ${JSON.stringify(one)}`
     tasks.push(
       printEnglish(prompt)
         .then((out) => {
-          bodies[f.fid] = out
+          bodies[f.fid] = plan.action === 'fixed' ? out : withTeamLabel(out, label)
           const leak = untranslatedLine(out)
           if (leak) untranslated.push({ fid: f.fid, sample: leak.slice(0, 120) })
         })

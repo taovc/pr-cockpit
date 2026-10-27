@@ -105,7 +105,7 @@ const WF_DOT: Record<string, string> = {
   review_created: 'bg-inverted', recheck: 'bg-inverted', posted: 'bg-accented',
   fix_started: 'bg-inverted', pushed: 'bg-accented',
   capped: 'bg-warning', converged: 'bg-success', cant_fix: 'bg-error', fix_error: 'bg-error', post_error: 'bg-error',
-  push_error: 'bg-error', fix_unverified: 'bg-warning', cooldown: 'bg-accented',
+  push_error: 'bg-error', fix_unverified: 'bg-warning', cooldown: 'bg-accented', post_held: 'bg-warning',
 }
 function wfLabel(ev: WfEvent) {
   const k = `automation.event.${ev.kind}`

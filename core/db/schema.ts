@@ -177,6 +177,7 @@ export const findingRechecks = sqliteTable('finding_rechecks', {
   // What WE now think, independently of whether the author moved: the two used to be squeezed into `status`, which
   // made "the author fixed it, and I no longer think it was worth raising" impossible to record.
   stance: text('stance', { enum: ['kept', 'retracted', 'adjusted', 'discuss'] }),
+  fixedBy: text('fixed_by'), // status fixed: the newest commit of the round that touched the finding's file
   stanceReason: text('stance_reason'), // required of the agent only when the stance differs from the previous round
   text: text('text'),
   at: text('at').notNull(),
@@ -417,6 +418,7 @@ export const prAutomation = sqliteTable('pr_automation', {
   lastFixReviewSha: text('last_fix_review_sha'), // which review head the last fix was dispatched for (no repeat fix for the same head)
   pendingFix: integer('pending_fix', { mode: 'boolean' }).notNull().default(false), // a fix was dispatched, waiting for it to finish (push / declared unfixable)
   optOut: integer('opt_out', { mode: 'boolean' }).notNull().default(false), // the user deleted the task → this PR leaves automation until manually re-enabled
+  postHeld: integer('post_held', { mode: 'boolean' }).notNull().default(false), // the PR moved before an auto post: one re-review ran, posting is left to a human
   note: text('note'), // the engine's most recent reason for stopping: capped/converged/cant_fix/fix_error/user_off (feeds the UI hint)
   // Cooldown: the sha + time when the engine first saw this head. Reset when the head changes;
   // no action until autoCooldownMinutes has elapsed.

@@ -105,6 +105,17 @@ function snap(over: Partial<PrSnapshot> = {}): PrSnapshot {
     decideAutoAction(snap({ review: { exists: true, status: 'draft', headSha: 'H0' }, actionableCount: 2, reviewFindingsCount: 2 })).action.kind,
     'post',
   )
+  // The PR moved since the review (once mode): no post on the stale review → one re-review, and posting is held for a human
+  {
+    const moved = decideAutoAction(snap({ reviewMode: 'once', headSha: 'H1', review: { exists: true, status: 'draft', headSha: 'H0' }, reviewFindingsCount: 2 }))
+    assert.equal(moved.action.kind, 'recheck')
+    assert.deepEqual(moved.patch, { postHeld: true, note: 'post_held' })
+    const held = decideAutoAction(snap({ reviewMode: 'once', headSha: 'H1', review: { exists: true, status: 'draft', headSha: 'H1' }, reviewFindingsCount: 2, auto: { ...snap().auto, postHeld: true } }))
+    assert.equal(held.action.kind, 'none', 'after that re-review nothing is posted automatically')
+    assert.equal(held.reason, 'post-held')
+    // every_push: a moved head is a normal re-review (branch 3), not a hold
+    assert.equal(decideAutoAction(snap({ headSha: 'H1', review: { exists: true, status: 'draft', headSha: 'H0' } })).reason, 'author-updated-recheck')
+  }
   // Clean PR: draft but 0 findings → don't post an empty comment (no more spinning on the post endpoint's 400)
   assert.equal(
     decideAutoAction(snap({ review: { exists: true, status: 'draft', headSha: 'H0' }, actionableCount: 0, reviewFindingsCount: 0 })).action.kind,
