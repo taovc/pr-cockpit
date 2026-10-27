@@ -493,6 +493,11 @@
     "close": "Fermer",
     "publishing": "Publication…",
     "confirmPublish": "Publier sur GitHub",
+    "publishAnyway": "Vérifié — publier quand même",
+    "headMoved": "La PR a de nouveaux commits depuis la revue ({sha}). Re-revoir d’abord : les constats corrigés sont décochés et leur commit de correction est noté.",
+    "headUnknown": "Impossible de lire le dernier commit de la PR ({error}) ; ne publiez que si vous êtes sûr.",
+    "recheckFirst": "Re-revoir d’abord",
+    "fixedBy": "corrigé dans {sha}",
     "published": "Publié : {url}",
     "triggerFailed": "Échec du déclenchement",
     "previewFailed": "Échec de l'aperçu",
@@ -699,7 +704,8 @@
       "deleted": "Désactivé (tâche supprimée)",
       "post_error": "Échec de publication — arrêté",
       "push_error": "Échec du push — arrêté",
-      "fix_unverified": "Corrigé — à re-vérifier"
+      "fix_unverified": "Corrigé — à re-vérifier",
+      "post_held": "Nouveaux commits · re-revu, publication manuelle"
     },
     "tab": "Automatisation",
     "noEvents": "Aucune activité d'automatisation",
@@ -716,7 +722,8 @@
       "post_error": "Échec de publication : {info}",
       "push_error": "Échec du push : {info}",
       "fix_unverified": "Corrigé — re-revue manuelle requise (mode once)",
-      "cooldown": "En attente — démarre dans {info} min"
+      "cooldown": "En attente — démarre dans {info} min",
+      "post_held": "La PR a bougé après la revue : une re-revue lancée, la publication vous revient"
     },
     "modeLabel": "Mode de revue",
     "fixAuthorHint": "Vide = seulement vos propres PR. Ajoutez des auteurs pour corriger celles des autres (lance un agent + push).",

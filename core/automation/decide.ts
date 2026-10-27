@@ -34,13 +34,14 @@ export type PrAutoRow = {
   lastFixReviewSha: string | null
   pendingFix: boolean
   optOut: boolean
+  postHeld: boolean // the PR moved before an auto post: one re-review ran, posting is left to a human
   note: string | null
   headSeenSha: string | null // cooldown: the head the engine first saw + when (engine-only)
   headSeenAt: string | null
 }
 
 export const EMPTY_AUTO_ROW: PrAutoRow = {
-  reviewOn: null, fixOn: null, round: 0, lastFixReviewSha: null, pendingFix: false, optOut: false, note: null,
+  reviewOn: null, fixOn: null, round: 0, lastFixReviewSha: null, pendingFix: false, optOut: false, postHeld: false, note: null,
   headSeenSha: null, headSeenAt: null,
 }
 
@@ -100,6 +101,7 @@ export type PrSnapshot = {
     lastFixReviewSha: string | null
     pendingFix: boolean
     optOut: boolean
+    postHeld?: boolean
     note: string | null
   }
 }
@@ -113,6 +115,7 @@ export type PrAutoPatch = Partial<{
   round: number
   lastFixReviewSha: string | null
   pendingFix: boolean
+  postHeld: boolean
   note: string | null
 }>
 export type AutoDecision = { action: AutoAction; patch?: PrAutoPatch; reason: string }
@@ -169,7 +172,12 @@ export function decideAutoAction(s: PrSnapshot): AutoDecision {
 
   // 4. Auto review: the review/recheck produced a draft (unpublished) and there are findings to post → tick the automatable ones + post the comment to GitHub
   //    A clean PR (0 findings) doesn't post an empty comment and stays in draft (otherwise every tick would hit the post endpoint's 400 empty-comment guard and spin on errors).
+  //    The PR moved since the review (once mode, or a push between ticks): re-review once and leave the post to a human.
   if (reviewOn && review?.exists && review.status === 'draft' && s.reviewFindingsCount > 0) {
+    if (s.auto.postHeld) return none('post-held')
+    if (s.headSha && review.headSha && s.headSha !== review.headSha) {
+      return { action: { kind: 'recheck' }, patch: { postHeld: true, note: 'post_held' }, reason: 'head-moved-recheck' }
+    }
     return { action: { kind: 'post' }, reason: 'auto-post-draft' }
   }
 

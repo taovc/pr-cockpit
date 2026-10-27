@@ -493,6 +493,11 @@
     "close": "关闭",
     "publishing": "发布中…",
     "confirmPublish": "确认发布到 GitHub",
+    "publishAnyway": "我看过了，仍然发布",
+    "headMoved": "PR 在审核后有新提交（{sha}）。建议先复审：已修的条目会自动取消勾选，并记下修复的 commit。",
+    "headUnknown": "无法确认 PR 的最新提交（{error}），确认无误再发布。",
+    "recheckFirst": "先复审",
+    "fixedBy": "修复于 {sha}",
     "published": "已发布：{url}",
     "triggerFailed": "触发失败",
     "previewFailed": "预览失败",
@@ -699,7 +704,8 @@
       "deleted": "已关闭（任务已删）",
       "post_error": "发评论失败 · 已停",
       "push_error": "上传失败 · 已停",
-      "fix_unverified": "已修复 · 待人工复核"
+      "fix_unverified": "已修复 · 待人工复核",
+      "post_held": "PR 有新提交 · 已复审，待你手动发布"
     },
     "tab": "自动化",
     "noEvents": "暂无自动化记录",
@@ -716,7 +722,8 @@
       "post_error": "发评论失败：{info}",
       "push_error": "上传失败：{info}",
       "fix_unverified": "已修复，待人工复核（once 模式不自动复查）",
-      "cooldown": "冷却中，{info} 分钟后开始"
+      "cooldown": "冷却中，{info} 分钟后开始",
+      "post_held": "PR 在审核后有新提交：已排一次复审，评论留给你手动发"
     },
     "modeLabel": "审核模式",
     "fixAuthorHint": "留空 = 只自动修复你自己的 PR。要对他人 PR 自动修复请显式选作者（会跑 agent 并自动 push）。",

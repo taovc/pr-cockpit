@@ -493,6 +493,11 @@
     "close": "Close",
     "publishing": "Publishing…",
     "confirmPublish": "Confirm publish to GitHub",
+    "publishAnyway": "I checked — post anyway",
+    "headMoved": "The PR has new commits since the review ({sha}). Re-review first: fixed findings get unticked and their fixing commit is recorded.",
+    "headUnknown": "Could not read the PR's latest commit ({error}); post only if you are sure.",
+    "recheckFirst": "Re-review first",
+    "fixedBy": "fixed in {sha}",
     "published": "Published: {url}",
     "triggerFailed": "Trigger failed",
     "previewFailed": "Preview failed",
@@ -699,7 +704,8 @@
       "deleted": "Off (task deleted)",
       "post_error": "Post failed — stopped",
       "push_error": "Push failed — stopped",
-      "fix_unverified": "Fixed — needs re-review"
+      "fix_unverified": "Fixed — needs re-review",
+      "post_held": "PR moved · re-reviewed, waiting for you to post"
     },
     "tab": "Workflow",
     "noEvents": "No automation activity yet",
@@ -716,7 +722,8 @@
       "post_error": "Post failed: {info}",
       "push_error": "Push failed: {info}",
       "fix_unverified": "Fixed — needs manual re-review (once mode)",
-      "cooldown": "Cooling down — starts in {info} min"
+      "cooldown": "Cooling down — starts in {info} min",
+      "post_held": "The PR moved after the review: one re-review queued, posting is left to you"
     },
     "modeLabel": "Review mode",
     "fixAuthorHint": "Empty author = only your own PRs are auto-fixed. Add authors to auto-fix others' PRs (runs an agent + pushes).",

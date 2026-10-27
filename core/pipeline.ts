@@ -22,6 +22,7 @@ import { existsSync } from 'node:fs'
 import { engineLevelOf } from './review/engine'
 import { adjustedPatch, replaceFindings } from './review/store'
 import { maxFidNumber } from './review/findingRules'
+import { fixedUncheck, fixingCommit, pathOfLocation } from './review/postGate'
 import type { ProviderUsage } from './runs/types'
 import {
   ROUND_EVENT, buildFindingIndex, buildHistoryDoc, computeRoundIntent, loadFindingHistory, writeReviewHistory,
@@ -418,16 +419,21 @@ async function runRecheckJob(ctx: ReviewJobCtx) {
       emit('error', '任务已被删除，丢弃复审结果'); finishRun(db, schema, runId, { status: 'stopped', error: 'task deleted' }); return
     }
     const byFid = new Map(existing.map((f: any) => [f.fid, f]))
+    const fixedBy = new Map<string, string | null>()
+    for (const r of result.rechecks) {
+      const old: any = byFid.get(r.fid)
+      if (old && r.status === 'fixed') fixedBy.set(r.fid, await fixingCommit(wt.path, previousHeadSha, wt.headSha, pathOfLocation(old.location)))
+    }
     let applied = 0
     let added = 0
     db.transaction((tx: any) => {
       for (const r of result.rechecks) {
         const old: any = byFid.get(r.fid)
         if (!old) continue // drop verdicts with no matching old finding (new issues go through newFindings)
-        const patch = r.stance === 'adjusted' ? adjustedPatch(old, r as any, ctx.lang) : null
-        if (patch) tx.update(schema.findings).set(patch).where(eq(schema.findings.id, old.id)).run()
+        const patch = { ...(r.stance === 'adjusted' ? adjustedPatch(old, r as any, ctx.lang) : null), ...fixedUncheck(old, r.status) }
+        if (Object.keys(patch).length) tx.update(schema.findings).set(patch).where(eq(schema.findings.id, old.id)).run()
         tx.insert(schema.findingRechecks).values({
-          id: nanoid(), findingId: old.id, round, status: r.status, stance: r.stance,
+          id: nanoid(), findingId: old.id, round, status: r.status, stance: r.stance, fixedBy: fixedBy.get(r.fid) ?? null,
           stanceReason: r.stanceReason || null, text: r.text || null, at: now(),
         }).run()
         applied++
