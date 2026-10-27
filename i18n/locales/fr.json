@@ -389,6 +389,8 @@
     },
     "autoMaxRounds": "Limite de tours d'auto-correction",
     "autoMaxRoundsHint": "Tours correction↔re-revue max, puis pause",
+    "engineLevel": "Niveau du moteur de revue",
+    "engineLevelHint": "Niveau du /code-review intégré : plus haut, plus approfondi et plus lent. Par défaut high.",
     "verifyBeforePost": "Vérifier avant publication",
     "verifyBeforePostHint": "Après une revue, une seconde passe en lecture seule tente de réfuter chaque finding ; les réfutés restent visibles mais décochés.",
     "autoCooldown": "Délai d'automatisation (min)",
@@ -410,14 +412,61 @@
     "recheckBtn": "Vérifier les changements de l'auteur",
     "recheckTitle": "Lit les nouveaux commits de l'auteur depuis votre dernier commentaire et juge si chaque point a été corrigé",
     "retryBtn": "Relancer la review",
-    "retryTitle": "Refait une revue complète à zéro — efface les findings et notes actuels",
-    "freshConfirm": "Tout refaire à zéro ? Les findings et notes actuels seront effacés.",
+    "retryTitle": "Refait une revue complète à zéro — les findings IA sont régénérés ; tes oublis ajoutés restent et les notes sont archivées",
+    "freshConfirm": "Tout refaire à zéro ? Les findings IA sont régénérés ; tes oublis ajoutés restent et les notes sont archivées.",
     "startFresh": "Tout refaire",
     "processing": "Traitement…",
     "runLog": "Journal d'exécution ({count} lignes)",
     "expandLog": "Déplier le journal ({count})",
     "collapseLog": "Replier le journal",
     "aiSummary": "Évaluation globale IA",
+    "tier": {
+      "must": "À corriger dans cette PR",
+      "decide": "À toi de trancher",
+      "later": "Peut attendre",
+      "edge": "Cas limites, facultatif",
+      "refuted": "Non confirmé"
+    },
+    "rating": {
+      "must": "Indispensable",
+      "later": "Plus tard",
+      "noise": "Sans intérêt",
+      "wrong": "Faux"
+    },
+    "evidence": {
+      "inferred": "déduit",
+      "ci": "montré par la CI",
+      "preview": "vu en preview",
+      "github": "état GitHub"
+    },
+    "source": {
+      "engine": "moteur",
+      "context": "regard projet",
+      "both": "les deux passes",
+      "human": "ajouté par toi",
+      "recheck": "trouvé en re-revue"
+    },
+    "notDone": "Non vérifié : ",
+    "reviewMdSuggestion": "À ajouter à REVIEW.md : ",
+    "copy": "Copier",
+    "copied": "Copié",
+    "engineLine": "Moteur {level} : ",
+    "engineOk": "terminé",
+    "engineFailed": "échec",
+    "stagesFailed": "{stages} en échec : les constats de ce tour ne sont ni vérifiés ni classés et restent hors automatisation",
+    "stageName": {
+      "check": "vérification",
+      "tier": "classement"
+    },
+    "reviewMdNone": "aucun",
+    "reviewMdLine": "REVIEW.md : {paths}",
+    "listSep": " ; ",
+    "rated": "Noté {n}/{total}",
+    "markPreview": "Cliquer pour basculer entre « vu en preview » et la preuve d’origine",
+    "missAdd": "Ajouter un oubli",
+    "missLocation": "emplacement path:line",
+    "missTitle": "ce qui a été oublié, en une phrase",
+    "missSubmit": "Ajouter",
     "instructionLabel": "Instruction de revue pour l'IA",
     "instructionPlaceholder": "Sur quoi l'IA doit se concentrer / ce avec quoi vous n'êtes pas d'accord / lui faire revérifier un point. « Recontrôler selon mes retours » fait revoir ceci + chaque note.",
     "requirement": "Besoin",
@@ -848,6 +897,8 @@
     "precision": "Précision par version de skill",
     "recheck": "Résultats des re-vérifications",
     "automation": "Automatisation",
+    "ratingData": "Données de notation",
+    "ratingCounts": "{live} sur les revues actuelles · {labels} instantanés ({orphaned} de revues supprimées)",
     "byDay": "Coût par jour",
     "recent": "Exécutions récentes",
     "col": {
@@ -899,6 +950,7 @@
       "precision": "Précision = acceptés par un humain (cochés ou publiés) ÷ tous les findings ; les coches machine (auto / moteur) ne comptent pas. Coût par accepté = toutes les exécutions de ces revues ÷ findings acceptés — ce que coûte un finding utile.",
       "recheck": "Taux de retrait : findings retirés après votre retour et une re-revue (plus bas = mieux). Taux de correction : findings jugés corrigés après le push de l'auteur. Dessous, le décompte du dernier statut de re-vérification de chaque finding.",
       "automation": "Décomptes d'événements du moteur d'automatisation : review_created / recheck / posted / fix_started / pushed, plus cooldown, capped, converged et les erreurs.",
+      "ratingData": "Vos notes et oublis ajoutés, conservés pour l’éval. Nettoyer des revues ou supprimer un projet les enregistre d’abord en instantanés, qui ne font que croître ; supprimer une seule revue supprime aussi ses instantanés.",
       "recent": "Une ligne par exécution, la plus récente en premier. Après le coût, ~ signifie estimé et +? que certains tours ne sont pas tarifés (le total est un minimum) ; survolez une ligne pour son titre ou le texte de l'erreur."
     }
   }

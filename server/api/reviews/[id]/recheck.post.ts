@@ -1,11 +1,12 @@
 import { eq } from 'drizzle-orm'
 import { schema } from '~core/db/client'
-import { enqueueRecheck } from '~core/pipeline'
+import { enqueueRecheck, enqueueReview } from '~core/pipeline'
 import { reviewQueue } from '~core/queue'
 import { fetchPrMeta } from '~core/github/gh'
 import { resolveLang } from '~core/agent/lang'
 import { recordRoundInstruction, reviewHistoryRootFor } from '~core/agent/reviewHistory'
 import { nanoid } from 'nanoid'
+import { hasAiFindings } from '~core/review/findingRules'
 
 // Trigger a re-review (the author pushed again after our comment and we want the AI to check whether it was fixed)
 export default defineEventHandler(async (event) => {
@@ -36,19 +37,25 @@ export default defineEventHandler(async (event) => {
 
   if (review.reviewInstruction) recordRoundInstruction(d, schema, id, review.reviewInstruction, nanoid(), new Date().toISOString())
 
+  // No AI findings yet (a clean review, or only hand-added misses): there is nothing to re-review, so this is a first pass.
+  const firstPass = !hasAiFindings(d.select().from(schema.findings).where(eq(schema.findings.reviewId, id)).all())
+  const status = firstPass ? 'queued' : 'recheck_requested'
   reviewQueue.setLimit(Number(cfg.maxConcurrency) || 3)
   // Clear the previous round's error when re-entering a re-review (it may have been restarted from the error state)
-  d.update(schema.reviews).set({ status: 'recheck_requested', error: null, updatedAt: new Date().toISOString() }).where(eq(schema.reviews.id, id)).run()
+  d.update(schema.reviews).set({ status, error: null, updatedAt: new Date().toISOString() }).where(eq(schema.reviews.id, id)).run()
 
   const rc = resolveReviewConfig(d, project)
-  enqueueRecheck({
+  const enqueue = firstPass ? enqueueReview : enqueueRecheck
+  enqueue({
     db: d, schema, reviewId: id,
     repo: project.repo, prNumber: review.prNumber, branch,
     defaultBranch: project.defaultBranch, localPath: project.localPath,
     methodology: rc.methodology,
     historyRoot: reviewHistoryRootFor(cfg.dbPath as string),
     reposDir: cfg.reposDir as string, worktreeLocation: cfg.worktreeLocation as string, provider: rc.provider, model: rc.model, effort: rc.effort, codexServiceTier: rc.codexServiceTier, lang: resolveLang(getCookie(event, 'mr-locale')),
+    verifyBeforePost: !!project.verifyBeforePost,
+    engineLevel: (project as any).reviewEngineLevel ?? null,
     projectId: project.id, skillId: rc.skillId, skillVersionId: rc.skillVersionId,
   })
-  return { ok: true, status: 'recheck_requested' }
+  return { ok: true, status }
 })

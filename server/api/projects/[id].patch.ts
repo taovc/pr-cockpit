@@ -15,6 +15,7 @@ const Body = z.object({
   autoMaxRounds: z.number().int().min(1).max(10).optional(), // round cap for the automated "fix ↔ recheck" loop
   autoCooldownMinutes: z.number().int().min(0).max(120).optional(), // automation cooldown (minutes, 0 = no cooldown)
   verifyBeforePost: z.boolean().optional(), // second read-only pass that tries to refute each finding of a fresh review
+  reviewEngineLevel: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(), // /code-review level of the review engine (Claude)
 })
 
 export default defineEventHandler(async (event) => {

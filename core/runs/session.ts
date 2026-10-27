@@ -282,7 +282,7 @@ export async function runSessionTurn(ctx: SessionTurnCtx, opts: { userTurnId?: s
       permissionMode: ctx.permissionMode ?? (run.permissionMode as PermissionMode | null) ?? defaultMode, allowDanger: ctx.allowDanger,
       systemAppend: systemPromptFor(run, ctx, { conflict: run.workspaceType === 'pr_worktree' ? await conflictHint(cwd) : undefined }),
       chrome: ctx.chrome, codexServiceTier, ultracode: ctx.ultracode, guardScope,
-      projectDirName: run.workspaceType !== 'cwd' ? projectDirNameFor(ctx.project?.localPath) : undefined, // one memory dir per project, not per worktree
+      projectDirName: run.workspaceType !== 'cwd' ? projectDirNameFor(ctx.project?.localPath) : undefined, // effective only with CLAUDE_CONFIG_DIR set
       db, schema,
     })
     if (stopRequested.has(runId)) throw new Error('stopped before the turn started')

@@ -1,6 +1,6 @@
 import type { ProviderUsage } from '../runs/types'
 import { EXPECTED_CLAUDE_CODE_VERSION } from './claude-bin'
-import { claudeCliVersionOf, claudeResultFailure, usageFromClaudeResult } from './usage'
+import { claudeCliVersionOf, claudeResultFailure, mergeUsage, usageFromClaudeResult } from './usage'
 
 // A review-family run that ended without an answer. It carries the usage the CLI reported, so a failed run is still costed.
 export class ClaudeRunError extends Error {
@@ -9,18 +9,24 @@ export class ClaudeRunError extends Error {
 
 export const usageOfError = (e: unknown): ProviderUsage | null => (e instanceof ClaudeRunError ? e.usage : null)
 
+// What a failed job spent: its stages' usage when any ran (a failed stage's usage is already among them), else the error's own.
+export const failedJobUsage = (stages: Array<ProviderUsage | null>, e: unknown): ProviderUsage | null => (stages.length ? mergeUsage(stages) : usageOfError(e))
+
 export type ClaudeRunOutput = { text: string; structured: unknown; usage: ProviderUsage | null; costUsd: number; subtype: string | null }
 
 let warnedVersion: string | null = null
 
 // Drain one review-family query: assistant text, tool calls, structured output, and usage stamped with the CLI version.
-export async function consumeClaudeRun(stream: AsyncIterable<any>, opts: { model?: string; onToolUse?: (block: any) => void }): Promise<ClaudeRunOutput> {
+export async function consumeClaudeRun(stream: AsyncIterable<any>, opts: { model?: string; onToolUse?: (block: any) => void; onResult?: (msg: any) => void; onMessage?: (msg: any) => void }): Promise<ClaudeRunOutput> {
   const out: ClaudeRunOutput = { text: '', structured: null, usage: null, costUsd: 0, subtype: null }
   let cliVersion: string | null = null
   let failure: string | null = null
+  let forked = false
   try {
     for await (const msg of stream) {
       cliVersion = claudeCliVersionOf(msg) ?? cliVersion
+      if (msg.type === 'system' && msg.subtype === 'task_started') forked = true
+      opts.onMessage?.(msg)
       if (msg.type === 'assistant') {
         const content = msg.message?.content
         if (Array.isArray(content)) {
@@ -34,7 +40,8 @@ export async function consumeClaudeRun(stream: AsyncIterable<any>, opts: { model
         out.usage = usageFromClaudeResult(msg, opts.model, cliVersion)
         out.subtype = typeof msg.subtype === 'string' ? msg.subtype : null
         out.structured = msg.structured_output ?? null
-        failure = claudeResultFailure(msg)
+        failure = failure ?? claudeResultFailure(msg, { forked }) // a failed turn stays failed in a multi-turn run
+        opts.onResult?.(msg)
       }
     }
   } catch (e) {

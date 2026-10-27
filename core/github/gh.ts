@@ -492,3 +492,30 @@ export async function ghStatus(): Promise<{ ok: boolean; detail: string }> {
     return { ok: false, detail: (e as Error).message }
   }
 }
+
+export type PrReviewSources = {
+  title: string
+  body: string
+  closingIssues: Array<{ repo: string; number: number }> // a closing issue may live in another repository
+  commits: string[] // headline + body of each commit
+  checks: Array<{ name: string; result: string }> // conclusion when finished, otherwise status
+}
+
+// What the review's context pass needs about a PR, in one call: the requirement sources and the CI checks.
+export async function fetchPrReviewSources(repo: string, prNumber: number): Promise<PrReviewSources> {
+  const out = await gh(['pr', 'view', String(prNumber), '--repo', repo, '--json', 'title,body,closingIssuesReferences,commits,statusCheckRollup'], 30_000)
+  const j = JSON.parse(out)
+  return {
+    title: j.title ?? '',
+    body: j.body ?? '',
+    closingIssues: (j.closingIssuesReferences ?? []).map((i: any) => ({
+      repo: i.repository?.owner?.login && i.repository?.name ? `${i.repository.owner.login}/${i.repository.name}` : /github\.com\/([^/]+\/[^/]+)\/issues\//.exec(String(i.url ?? ''))?.[1] ?? repo,
+      number: Number(i.number),
+    })).filter((i: { number: number }) => i.number > 0),
+    commits: (j.commits ?? []).map((c: any) => [c.messageHeadline, c.messageBody].filter(Boolean).join('\n\n')),
+    checks: (j.statusCheckRollup ?? []).map((c: any) => ({
+      name: String(c.name ?? c.context ?? '?'),
+      result: String(c.conclusion || c.state || c.status || 'UNKNOWN').toUpperCase(),
+    })),
+  }
+}

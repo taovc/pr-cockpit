@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { loadCodexRates } from '../runs/pricing'
+import { STAGE_SUBKINDS_SQL } from '../runs/types'
 
 // Pure read-side queries for the dashboard. db/schema are injected (same convention as core/automation/*),
 // so the same code runs against the real SQLite and the in-memory test DB. Everything here is plain SQL over
@@ -41,7 +42,7 @@ export function runsBySubkind(db: any, f: MetricsFilter = {}) {
            SUM(CASE WHEN cost_usd IS NULL THEN 1 ELSE 0 END) AS unpriced,
            SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
            SUM(cache_read_tokens) AS cache_read_tokens, SUM(cache_create_tokens) AS cache_create_tokens
-    FROM runs ${w.clause}
+    FROM runs ${w.clause ? w.clause + ' AND' : 'WHERE'} subkind NOT IN ${STAGE_SUBKINDS_SQL}
     GROUP BY subkind, provider
     ORDER BY subkind, provider`, w.args)
 }
@@ -89,9 +90,9 @@ export function precisionBySkillVersion(db: any, f: MetricsFilter = {}) {
            SUM(CASE WHEN fd.posted_post_id IS NULL AND fd.checked = 1 AND fd.checked_by IN ('auto', 'engine') THEN 1 ELSE 0 END) AS machine_checked,
            SUM(CASE WHEN fd.posted_post_id IS NOT NULL THEN 1 ELSE 0 END) AS posted,
            (SELECT SUM(ru.cost_usd) FROM runs ru JOIN reviews r2 ON r2.id = ru.review_id
-              ${costWhere.clause ? costWhere.clause + ' AND' : 'WHERE'} r2.skill_version_id IS r.skill_version_id AND ${triaged.replace(/\br\./g, 'r2.')}) AS cost_usd
+              ${costWhere.clause ? costWhere.clause + ' AND' : 'WHERE'} ru.subkind NOT IN ${STAGE_SUBKINDS_SQL} AND r2.skill_version_id IS r.skill_version_id AND ${triaged.replace(/\br\./g, 'r2.')}) AS cost_usd
     FROM reviews r
-    LEFT JOIN findings fd ON fd.review_id = r.id
+    LEFT JOIN findings fd ON fd.review_id = r.id AND COALESCE(fd.source, '') <> 'human' AND COALESCE(fd.verify_status, '') <> 'refuted' -- what the AI presented as holding
     LEFT JOIN skill_versions sv ON sv.id = r.skill_version_id
     LEFT JOIN skills s ON s.id = sv.skill_id
     ${w.clause ? w.clause + ' AND' : 'WHERE'} ${triaged}
@@ -159,7 +160,7 @@ export function costByDay(db: any, f: MetricsFilter = {}, days = 30) {
   return all(db, `
     SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS runs, SUM(cost_usd) AS cost_usd,
            SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens
-    FROM runs ${w.clause}
+    FROM runs ${w.clause ? w.clause + ' AND' : 'WHERE'} subkind NOT IN ${STAGE_SUBKINDS_SQL}
     GROUP BY day ORDER BY day DESC LIMIT ?`, [...w.args, days])
 }
 
@@ -175,13 +176,25 @@ export function recentRuns(db: any, f: MetricsFilter = {}, page: { limit?: numbe
     FROM runs r
     LEFT JOIN projects p ON p.id = r.project_id
     LEFT JOIN skill_versions sv ON sv.id = r.skill_version_id
-    ${w.clause}
+    ${w.clause ? w.clause + ' AND' : 'WHERE'} r.subkind NOT IN ${STAGE_SUBKINDS_SQL}
     ORDER BY r.created_at DESC LIMIT ? OFFSET ?`, [...w.args, limit, offset])
 }
 
 export function countRuns(db: any, f: MetricsFilter = {}): number {
   const w = where(f, { project: 'project_id', ts: 'created_at' })
-  return Number(all<{ n: number }>(db, `SELECT COUNT(*) AS n FROM runs ${w.clause}`, w.args)[0]?.n ?? 0)
+  return Number(all<{ n: number }>(db, `SELECT COUNT(*) AS n FROM runs ${w.clause ? w.clause + ' AND' : 'WHERE'} subkind NOT IN ${STAGE_SUBKINDS_SQL}`, w.args)[0]?.n ?? 0)
+}
+
+// How much rating data is kept: ratings on current findings, and snapshot labels (which only grow, except when a single
+// review is deleted). Not limited by the date range: it is a storage figure.
+export function ratingData(db: any, f: MetricsFilter = {}) {
+  const p = f.projectId ?? null
+  const live = all(db, `SELECT COUNT(*) AS n FROM findings fd JOIN reviews r ON r.id = fd.review_id
+    WHERE (fd.rating IS NOT NULL OR fd.source = 'human') ${p ? 'AND r.project_id = ?' : ''}`, p ? [p] : [])[0]?.n ?? 0
+  const labels = all(db, `SELECT COUNT(*) AS n, SUM(CASE WHEN r.id IS NULL THEN 1 ELSE 0 END) AS orphaned
+    FROM finding_labels l LEFT JOIN reviews r ON r.id = l.review_id
+    ${p ? 'WHERE r.project_id = ? OR (r.id IS NULL AND l.repo = (SELECT repo FROM projects WHERE id = ?))' : ''}`, p ? [p, p] : [])[0]
+  return { live, labels: labels?.n ?? 0, orphaned: labels?.orphaned ?? 0 }
 }
 
 export function metricsOverview(db: any, f: MetricsFilter = {}) {
@@ -194,6 +207,7 @@ export function metricsOverview(db: any, f: MetricsFilter = {}) {
     recheck: recheckFunnel(db, f),
     automation: automationFunnel(db, f),
     costByDay: costByDay(db, f),
+    ratingData: ratingData(db, f),
     pricing: { codexRatesAsOf: rates.asOf, codexModelsPriced: Object.keys(rates.rates).length },
   }
 }

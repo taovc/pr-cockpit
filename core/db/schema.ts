@@ -22,6 +22,7 @@ export const projects = sqliteTable('projects', {
   autoCooldownMinutes: integer('auto_cooldown_minutes').notNull().default(5),
   // Verify-before-post: after a fresh review, a second read-only pass tries to refute every finding (core/agent/verify.ts).
   verifyBeforePost: integer('verify_before_post', { mode: 'boolean' }).notNull().default(false),
+  reviewEngineLevel: text('review_engine_level').notNull().default('high'), // /code-review level of the scope-review engine
   defaultBranch: text('default_branch').notNull().default('dev'),
   createdAt: text('created_at').notNull(),
 })
@@ -115,6 +116,9 @@ export const reviews = sqliteTable('reviews', {
   // Observability: the most recent agent run (review / guided / recheck) and the skill version it used.
   lastRunId: text('last_run_id'),
   skillVersionId: text('skill_version_id'),
+  notDone: text('not_done'), // scope-review: the checks nobody ran
+  reviewMdSuggestion: text('review_md_suggestion'), // scope-review: a rule worth adding to REVIEW.md
+  pipelineMeta: text('pipeline_meta'), // scope-review JSON: { engineLevel, engineOk, reviewMd: string[] }
   error: text('error'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
@@ -146,6 +150,12 @@ export const findings = sqliteTable('findings', {
   // Verify-before-post verdict of the second pass (null = not verified). Refuted findings stay visible but unchecked.
   verifyStatus: text('verify_status', { enum: ['confirmed', 'refuted', 'unsure'] }),
   verifyNote: text('verify_note'),
+  // Scope-review pipeline (null on older reviews): value tier, evidence level, which pass found it, and the human rating.
+  tier: text('tier', { enum: ['must', 'decide', 'later', 'edge'] }),
+  evidence: text('evidence', { enum: ['inferred', 'ci', 'preview', 'github'] }),
+  source: text('source', { enum: ['engine', 'context', 'both', 'recheck', 'human'] }),
+  rating: text('rating', { enum: ['must', 'later', 'noise', 'wrong'] }),
+  ratedAt: text('rated_at'),
   notes: text('notes'),
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: text('created_at').notNull(),
@@ -421,7 +431,7 @@ export const prAutomation = sqliteTable('pr_automation', {
 export const runs = sqliteTable('runs', {
   id: text('id').primaryKey(),
   kind: text('kind', { enum: ['review', 'session'] }).notNull(),
-  subkind: text('subkind', { enum: ['review', 'guided', 'recheck', 'skillgen', 'session', 'helper', 'eval', 'verify'] }).notNull(),
+  subkind: text('subkind', { enum: ['review', 'guided', 'recheck', 'skillgen', 'session', 'helper', 'eval', 'verify', 'engine', 'context', 'check', 'tier'] }).notNull(),
   projectId: text('project_id'), // no FK: a run record must survive project deletion for the dashboard
   reviewId: text('review_id'),
   workspaceType: text('workspace_type', { enum: ['pr_worktree', 'branch_worktree', 'cwd'] }),
@@ -437,6 +447,7 @@ export const runs = sqliteTable('runs', {
   claudeSessionId: text('claude_session_id'),
   codexThreadId: text('codex_thread_id'),
   cliVersion: text('cli_version'), // Claude Code CLI version (review family)
+  reviewRules: text('review_rules'), // JSON [{ path, sha }] of the REVIEW.md files this run read (content in review_rule_files)
   // Session host state: the permission mode the session runs in, the dangerous-command switch, network access (Codex) and per-run "always allow" rules (JSON).
   permissionMode: text('permission_mode'),
   allowDanger: integer('allow_danger', { mode: 'boolean' }).notNull().default(false),
@@ -601,6 +612,34 @@ export const evalFindings = sqliteTable('eval_findings', {
   location: text('location'),
   matchedLabelId: text('matched_label_id'),
   verifyStatus: text('verify_status'),
+  createdAt: text('created_at').notNull(),
+})
+
+// Ratings kept as eval labels: copied before a fresh review replaces findings, and before a cleanup or project deletion.
+export const findingLabels = sqliteTable('finding_labels', {
+  id: text('id').primaryKey(),
+  reviewId: text('review_id').notNull(),
+  repo: text('repo'), // with prNumber: which PR the snapshot belongs to once its review is gone
+  prNumber: integer('pr_number'),
+  headSha: text('head_sha'),
+  fid: text('fid').notNull(),
+  severity: text('severity'),
+  title: text('title').notNull(),
+  location: text('location'),
+  problem: text('problem'),
+  tier: text('tier'),
+  verifyStatus: text('verify_status'),
+  source: text('source'),
+  rating: text('rating'),
+  ratedAt: text('rated_at'),
+  createdAt: text('created_at').notNull(),
+})
+
+// Content of every REVIEW.md version a review has read, keyed by its sha (runs.review_rules points here).
+export const reviewRuleFiles = sqliteTable('review_rule_files', {
+  sha: text('sha').primaryKey(),
+  path: text('path').notNull(),
+  content: text('content').notNull(),
   createdAt: text('created_at').notNull(),
 })
 

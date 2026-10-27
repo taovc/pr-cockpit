@@ -1,0 +1,230 @@
+import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { assembleFindings, fromContext, fromEngine, type RawFinding } from '../core/review/assemble'
+import { buildContextDoc, findReviewMd, memoryIndexFor, otherReposFor, referencedIssues } from '../core/review/context'
+import { dropTranscript, engineLevelOf, taskGate } from '../core/review/engine'
+import { isAutomatable } from '../core/automation/findings'
+import { adjustedPatch, replaceFindings, snapshotRatings } from '../core/review/store'
+import { ratingData } from '../core/metrics/queries'
+import { hasAiFindings, maxFidNumber } from '../core/review/findingRules'
+import { contextDocPath } from '../core/review/context'
+import { runScopeReview, withFailedStages, type ScopeDeps } from '../core/review/scope'
+import { getDb, schema } from '../core/db/client'
+import { eq } from 'drizzle-orm'
+
+// ── rules the tier pass cannot break: nothing dropped, refuted never tiered, source and verdict from the ids ──
+const raw: RawFinding[] = [
+  ...fromEngine([{ file: 'a.ts', line: 3, summary: 'null crash', failure_scenario: 'x is null' }, { file: 'b.ts', line: null, summary: 'race', failure_scenario: '' }]),
+  ...fromContext([{ file: 'a.ts', line: 3, title: 'same null crash', consequence: 'page breaks', preExisting: false }, { file: 'c.ts', line: 9, title: 'old dup helper', consequence: 'drift', preExisting: true }]),
+]
+assert.deepEqual(raw.map((f) => f.id), ['E1', 'E2', 'C1', 'C2'])
+const verdicts = new Map([
+  ['E1', { verdict: 'unsure' as const, reason: '' }],
+  ['C1', { verdict: 'confirmed' as const, reason: 'a.ts:3 reads x.y' }],
+  ['E2', { verdict: 'refuted' as const, reason: 'b.ts:10 holds a lock' }],
+])
+const rows = assembleFindings(raw, verdicts, {
+  conclusion: 'c', notDone: '', reviewMdSuggestion: '',
+  items: [
+    { ids: ['E1', 'C1'], tier: 'later', severity: 'Medium', evidence: 'inferred', preExisting: false, location: 'a.ts:3', title: '空指针', problem: '页面崩', detail: '', fix: '' },
+    { ids: ['E2'], tier: 'must', severity: 'High', evidence: 'inferred', preExisting: false, location: '', title: '竞态', problem: '', detail: '', fix: '' },
+    { ids: ['E1', 'nope'], tier: 'must', severity: 'High', evidence: 'ci', preExisting: false, location: '', title: 'dup id', problem: '', detail: '', fix: '' },
+  ],
+})
+assert.equal(rows.length, 3, 'merged pair + refuted + the one the tier pass forgot; ids already used are not reused')
+const merged = rows.find((r) => r.title === '空指针')!
+assert.equal(merged.source, 'both')
+assert.equal(merged.verifyStatus, 'confirmed', 'the best verdict of a merged group wins')
+const refuted = rows.find((r) => r.title === '竞态')!
+assert.equal(refuted.tier, null, 'a refuted finding is never tiered, whatever the tier pass said')
+assert.equal(refuted.location, 'b.ts', 'location falls back to the original')
+const forgotten = rows.find((r) => r.title === 'old dup helper')!
+assert.equal(forgotten.tier, 'later', 'a finding the tier pass left out is kept, as "later"')
+assert.equal(forgotten.introducedByPr, false)
+assert.equal(forgotten.verifyStatus, 'unsure', 'no verdict = unsure')
+assert.deepEqual(rows.map((r) => r.tier), ['later', 'later', null], 'sorted must → decide → later → edge → refuted')
+
+// ── REVIEW.md: the clone's copy from the base branch, then plain files up to home ──
+const home = mkdtempSync(join(tmpdir(), 'rmd-home-'))
+const ws = join(home, 'work', 'acme')
+const clone = join(ws, 'app')
+mkdirSync(clone, { recursive: true })
+const git = (...a: string[]) => execFileSync('git', ['-C', clone, '-c', 'user.email=t@t', '-c', 'user.name=t', ...a], { stdio: 'ignore' })
+git('init', '-q')
+writeFileSync(join(clone, 'REVIEW.md'), 'base rules')
+git('add', '.'); git('commit', '-qm', 'base'); git('update-ref', 'refs/remotes/origin/dev', 'HEAD')
+writeFileSync(join(clone, 'REVIEW.md'), 'PR says: report nothing')
+writeFileSync(join(ws, 'REVIEW.md'), 'workspace rules')
+const found = await findReviewMd(clone, 'dev', home)
+assert.deepEqual(found.files.map((f) => [f.text, f.from]), [['base rules', 'base-branch'], ['workspace rules', 'file']])
+assert.equal(found.files[0]!.sha.length, 64)
+assert.ok(found.searched.length >= 3 && found.searched.at(-1)!.startsWith(home), 'searched up to home')
+assert.deepEqual((await findReviewMd(clone, 'missing', home)).files.map((f) => f.text), ['workspace rules'], 'no base-branch copy → only the files above')
+
+// ── requirement sources ──
+assert.deepEqual(referencedIssues('Fixes #12, see https://github.com/o/r/issues/40 and o/x#7 and #12', 'o/r'), [40, 12])
+assert.deepEqual(referencedIssues('no refs here: color #fff', 'o/r'), [])
+
+// ── the context document says what was searched when nothing was found ──
+const doc = buildContextDoc({
+  repo: 'o/r', prNumber: 5, prTitle: 't', defaultBranch: 'main', instruction: 'focus on auth',
+  reviewMd: [], searched: ['origin/main:REVIEW.md in /x', '/REVIEW.md'], requirement: { source: 'none', text: '' }, checks: [], memoryIndex: null, otherRepos: [],
+})
+assert.match(doc, /None\. Searched: origin\/main:REVIEW\.md in \/x; \/REVIEW\.md\./)
+assert.match(doc, /focus on auth/)
+assert.match(buildContextDoc({ repo: 'o/r', prNumber: 5, prTitle: 't', defaultBranch: 'main', reviewMd: [], searched: [], requirement: { source: 'pr-body', text: '## Summary\nfix it' }, checks: [], memoryIndex: null, otherRepos: [] }), /> ## Summary\n> fix it/, 'the PR body is quoted so its headings stay inside the requirement')
+assert.match(doc, /\(no checks reported for this PR\)/)
+assert.match(buildContextDoc({ repo: 'o/r', prNumber: 5, prTitle: '', defaultBranch: 'main', reviewMd: [], searched: [], requirement: { source: 'none', text: '' }, checks: [], memoryIndex: null, otherRepos: [], unavailable: 'gh timed out' }), /could not be fetched \(gh timed out\)/, 'a failed gh call is said, not fatal')
+{
+  const rules = [{ path: 'REVIEW.md', text: 'Check server/api and the admin panel.', sha: 's', from: 'file' as const }]
+  const repos = await otherReposFor(rules, [
+    { repo: 'a/server', localPath: '/nonexistent/server', defaultBranch: 'main' },
+    { repo: 'a/admin', localPath: '/nonexistent/admin/', defaultBranch: 'main' },
+  ], 'o/r')
+  assert.deepEqual(repos.map((r) => [r.repo, r.fetched]), [['a/admin', false]], 'a word in a path is not a project name; a failed fetch is reported')
+}
+assert.equal(memoryIndexFor(undefined), null)
+mkdirSync(join(home, '.claude', 'projects', 'p', 'memory'), { recursive: true })
+writeFileSync(join(home, '.claude', 'projects', 'p', 'memory', 'MEMORY.md'), '- [a](a.md)')
+assert.equal(memoryIndexFor('p', join(home, '.claude'))?.text, '- [a](a.md)')
+assert.equal(memoryIndexFor('p', join(home, 'elsewhere')), null, 'read from the CLI config dir, which CLAUDE_CONFIG_DIR may move')
+
+// ── the engine asks for structured findings only once the backgrounded /code-review task has finished ──
+let fired = 0
+const gate = taskGate(() => { fired++ })
+gate.onMessage({ type: 'system', subtype: 'task_started', task_id: 't1' })
+gate.onResult() // "Command completed": the review still runs in the background
+assert.equal(fired, 0, 'not while the review task runs')
+gate.onMessage({ type: 'system', subtype: 'task_notification', task_id: 't1', status: 'completed' })
+assert.equal(fired, 1, 'once it has finished')
+gate.onResult(); gate.onMessage({ type: 'system', subtype: 'task_notification', task_id: 't1', status: 'completed' })
+assert.equal(fired, 1, 'fires once')
+let fg = 0
+const fgGate = taskGate(() => { fg++ })
+fgGate.onMessage({ type: 'system', subtype: 'task_started', task_id: 'a' })
+fgGate.onMessage({ type: 'system', subtype: 'task_notification', task_id: 'a', status: 'completed' })
+assert.equal(fg, 0, 'a foreground run waits for its own result')
+fgGate.onResult()
+assert.equal(fg, 1)
+
+// ── engine level ──
+assert.equal(engineLevelOf('xhigh'), 'xhigh')
+assert.equal(engineLevelOf('ultra'), 'high', 'ultra is a cloud review, never run here')
+assert.equal(engineLevelOf(null), 'high')
+
+// ── automation only touches confirmed "must" items of a scope review; older findings keep their rule ──
+assert.equal(isAutomatable({ tier: 'must', verifyStatus: 'confirmed', severity: 'Low' }), true)
+assert.equal(isAutomatable({ tier: 'must', verifyStatus: 'unsure', severity: 'High' }), false, 'an unconfirmed must waits for a human')
+assert.equal(isAutomatable({ tier: 'later', verifyStatus: 'confirmed', severity: 'High' }), false)
+assert.equal(isAutomatable({ tier: 'decide', verifyStatus: 'confirmed', severity: 'High' }), false)
+assert.equal(isAutomatable({ tier: null, verifyStatus: null, severity: 'High' }), true, 'older reviews: as before')
+assert.equal(isAutomatable({ tier: null, verifyStatus: 'refuted', severity: 'High' }), false)
+assert.equal(isAutomatable({ tier: null, source: 'engine', verifyStatus: null, severity: 'High' }), false, 'a refuted scope finding stays out even after a re-review clears its verdict')
+assert.equal(isAutomatable({ tier: 'must', source: 'human', verifyStatus: 'confirmed', severity: 'High' }), false, 'a hand-added miss is never automated')
+
+// ── a fresh review keeps the reviewer's own work: hand-added misses stay (renumbered), rated findings are labelled ──
+const db = getDb(':memory:')
+const now = new Date().toISOString()
+db.insert(schema.projects).values({ id: 'P', name: 'p', slug: 'p', repo: 'o/r', defaultBranch: 'main', createdAt: now } as any).run()
+db.insert(schema.reviews).values({ id: 'R', projectId: 'P', prNumber: 1, prUrl: 'u', status: 'draft', createdAt: now, updatedAt: now } as any).run()
+const ins = (id: string, fid: string, extra: Record<string, unknown>) => db.insert(schema.findings).values({ id, reviewId: 'R', fid, severity: 'Medium', title: id, introducedByPr: true, checked: false, sortOrder: 0, createdAt: now, ...extra } as any).run()
+ins('ai-rated', 'F1', { source: 'engine', tier: 'must', rating: 'noise', ratedAt: now })
+ins('ai-plain', 'F2', { source: 'context', tier: 'later' })
+ins('miss', 'F3', { source: 'human', tier: 'must', rating: 'must', ratedAt: now })
+assert.equal(hasAiFindings(db.select().from(schema.findings).all() as any[]), true)
+db.transaction((tx: any) => replaceFindings(tx, schema, { reviewId: 'R', headSha: 'abc', now, rows: [{ severity: 'High', title: 'new one', introducedByPr: true, tier: 'must', source: 'engine' }] }))
+const after = db.select().from(schema.findings).where(eq(schema.findings.reviewId, 'R')).all() as any[]
+assert.deepEqual(after.map((f) => [f.fid, f.title]).sort(), [['F1', 'new one'], ['F2', 'miss']], 'old AI findings replaced, the miss kept and renumbered after them')
+const labels = db.select().from(schema.findingLabels).all() as any[]
+assert.deepEqual(labels.map((l) => [l.title, l.rating, l.headSha]), [['ai-rated', 'noise', 'abc']], 'only rated AI findings are labelled (the miss is still on the review)')
+assert.deepEqual([labels[0].repo, labels[0].prNumber], ['o/r', 1], 'a label names its PR, so it outlives the review')
+
+// ── cleanup / project deletion: ratings and misses are snapshotted first; the dashboard counts them ──
+db.update(schema.findings).set({ rating: 'must', ratedAt: now }).where(eq(schema.findings.title, 'new one')).run()
+assert.deepEqual(ratingData(db), { live: 2, labels: 1, orphaned: 0 })
+db.transaction((tx: any) => {
+  assert.equal(snapshotRatings(tx, schema, ['R', 'gone'], now), 2, 'the rated finding and the miss; an unknown review is skipped')
+  tx.delete(schema.reviews).where(eq(schema.reviews.id, 'R')).run()
+})
+assert.deepEqual(ratingData(db), { live: 0, labels: 3, orphaned: 3 }, 'snapshots survive the review')
+assert.deepEqual(ratingData(db, { projectId: 'P' }), { live: 0, labels: 3, orphaned: 3 }, 'matched to the project by repo')
+assert.deepEqual(ratingData(db, { projectId: 'other' }), { live: 0, labels: 0, orphaned: 0 })
+assert.equal(hasAiFindings([{ source: 'human' }]), false, 'only hand-added misses → the next run is a first pass')
+assert.equal(hasAiFindings([{ source: null }]), true)
+assert.equal(maxFidNumber([{ fid: 'F2' }, { fid: 'F10' }, { fid: null }]), 10)
+assert.equal(maxFidNumber([]), 0)
+assert.ok(contextDocPath('/h', 'R').endsWith('/R/review-context.md'))
+
+// ── a re-review that rewrites a finding: scope findings become "unsure" (out of automation), older ones drop the verdict ──
+assert.deepEqual(adjustedPatch({ tier: 'must', source: 'engine' }, { title: 'new wording', problem: '' }, 'zh'), { title: 'new wording', verifyStatus: 'unsure', verifyNote: '复审时改写过，未重新核对' })
+assert.equal(adjustedPatch({ tier: 'must', source: 'engine' }, { title: 'x' }, 'en')!.verifyNote, 'Reworded by a re-review, not checked again')
+assert.deepEqual(adjustedPatch({ tier: 'must', source: 'engine', checked: true, checkedBy: 'engine' }, { title: 'x' })!.checked, false, 'a machine tick goes: the reworded finding is not posted unseen')
+assert.equal('checked' in adjustedPatch({ tier: 'must', source: 'engine', checked: true, checkedBy: 'human' }, { title: 'x' })!, false, "the reviewer's own tick stays")
+assert.deepEqual(adjustedPatch({ tier: null, source: 'engine', verifyStatus: 'refuted' }, { title: 'x' }), { title: 'x' }, 'a refuted finding stays refuted')
+assert.equal(adjustedPatch({ tier: 'must', source: null }, { title: 'x' })!.verifyStatus, 'unsure', 'the merge-conflict finding (tier, no source) too')
+assert.deepEqual(adjustedPatch({ tier: null, source: null }, { fix: 'f' }), { fix: 'f', verifyStatus: null, verifyNote: null })
+assert.equal(adjustedPatch({ tier: 'must' }, { title: '  ' }), null, 'nothing rewritten → nothing to patch')
+assert.equal(isAutomatable({ tier: 'must', source: 'engine', verifyStatus: 'unsure', severity: 'High' }), false)
+
+// ── the orchestrator's failure handling, with fake stages ──
+{
+  const hist = mkdtempSync(join(tmpdir(), 'scope-hist-'))
+  const ctxStub = { prTitle: 't', reviewMd: [], searched: [], requirement: { source: 'pr-body' as const, text: 'req' }, checks: [], memoryIndex: null, otherRepos: [] }
+  const finding = { file: 'a.ts', line: 1, title: 'ctx finding', consequence: 'c', lens: '', preExisting: false }
+  const calls: string[] = []
+  const deps = (o: { engineFails?: boolean; contextFails?: boolean; fallbackFails?: boolean }): ScopeDeps => ({
+    gather: async () => ctxStub,
+    engine: async () => { calls.push('engine'); if (o.engineFails) throw new Error('engine down'); return { findings: [], usage: null, text: '', trace: [] } },
+    context: async (a: any) => {
+      calls.push(a.correctnessOnly ? 'fallback' : 'context')
+      if (a.correctnessOnly ? o.fallbackFails : o.contextFails) throw new Error('context down')
+      return { result: { findings: a.correctnessOnly ? [] : [finding] }, usage: null }
+    },
+    classify: async (a: any) => ({ rows: a.raw.map((f: any) => ({ title: f.title })), tier: { conclusion: '', notDone: '', reviewMdSuggestion: '', items: [] }, failed: ['check'] }) as any,
+  })
+  const opts = (abort?: AbortController) => ({ cwd: hist, repo: 'o/r', prNumber: 1, defaultBranch: 'main', localPath: hist, projects: [], level: 'high' as const, historyRoot: hist, reviewId: 'R', abort, emit: () => {}, stage: (async (_: string, fn: any) => fn()) as any })
+
+  calls.length = 0
+  await assert.rejects(runScopeReview(opts(), deps({ engineFails: true, contextFails: true })), /都失败/)
+  assert.deepEqual(calls.sort(), ['context', 'engine'], 'both failed: no extra fallback pass is spent')
+
+  calls.length = 0
+  const kept = await runScopeReview(opts(), deps({ engineFails: true, fallbackFails: true }))
+  assert.deepEqual(kept.rows.map((r: any) => r.title), ['ctx finding'], 'a failed fallback keeps the first pass')
+  assert.equal(kept.meta.engineOk, false)
+  assert.equal(kept.requirement, 'req', 'the requirement is returned for re-reviews')
+  assert.deepEqual(kept.meta.failed, ['check'], 'a failed check or tier stage lands on the meta')
+
+  calls.length = 0
+  const stopped = new AbortController(); stopped.abort()
+  await assert.rejects(runScopeReview(opts(stopped), deps({})), /aborted/)
+  assert.deepEqual(calls, [], 'stopped before the stages: none starts')
+}
+
+// The engine's transcript is removed after the review; other sessions in the same directory stay.
+{
+  const cfg = mkdtempSync(join(tmpdir(), 'cfg-'))
+  const shared = join(cfg, 'projects', '-wt-a')
+  const alone = join(cfg, 'projects', '-wt-b')
+  mkdirSync(join(shared, 'eng-1', 'subagents'), { recursive: true })
+  writeFileSync(join(shared, 'eng-1.jsonl'), '{}')
+  writeFileSync(join(shared, 'other.jsonl'), '{}')
+  mkdirSync(join(alone, 'eng-2', 'subagents'), { recursive: true })
+  writeFileSync(join(alone, 'eng-2.jsonl'), '{}')
+  dropTranscript('eng-1', cfg)
+  dropTranscript('eng-2', cfg)
+  dropTranscript('../x', cfg)
+  assert.equal(existsSync(join(shared, 'eng-1.jsonl')), false)
+  assert.equal(existsSync(join(shared, 'eng-1')), false)
+  assert.equal(existsSync(join(shared, 'other.jsonl')), true, "another session's transcript stays")
+  assert.equal(existsSync(alone), false, 'an emptied directory is removed')
+}
+
+// A stage that failed is kept on the review's meta, so the drawer can say why nothing was checked or tiered.
+assert.deepEqual(JSON.parse(withFailedStages(JSON.stringify({ engineOk: true, failed: ['tier'] }), [])), { engineOk: true, failed: [] }, 'a later round replaces it')
+assert.equal(withFailedStages('not json', ['check']), 'not json')
+
+console.log('✓ scope review')

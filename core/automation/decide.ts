@@ -89,7 +89,7 @@ export type PrSnapshot = {
   reviewMode: 'once' | 'every_push'
   maxRounds: number
   actionableCount: number // number of findings still to handle (High/Med and unfixed; the engine computes it from the DB)
-  reviewFindingsCount: number // total findings from the review (0 = clean PR, nothing to post a comment about)
+  reviewFindingsCount: number // findings automation may post (0 = nothing to post a comment about)
   review: ReviewSnapshot | null
   fix: FixSnapshot
   // Resolved runtime state (reviewOn/fixOn are already effective booleans; round/lastFixReviewSha/pendingFix/optOut come from the pr_automation row)
@@ -167,7 +167,7 @@ export function decideAutoAction(s: PrSnapshot): AutoDecision {
     return { action: { kind: 'recheck' }, reason: 'author-updated-recheck' }
   }
 
-  // 4. Auto review: the review/recheck produced a draft (unpublished) and there are findings to post → auto select all + post the comment to GitHub
+  // 4. Auto review: the review/recheck produced a draft (unpublished) and there are findings to post → tick the automatable ones + post the comment to GitHub
   //    A clean PR (0 findings) doesn't post an empty comment and stays in draft (otherwise every tick would hit the post endpoint's 400 empty-comment guard and spin on errors).
   if (reviewOn && review?.exists && review.status === 'draft' && s.reviewFindingsCount > 0) {
     return { action: { kind: 'post' }, reason: 'auto-post-draft' }

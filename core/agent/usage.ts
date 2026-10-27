@@ -56,14 +56,15 @@ export function claudeCliVersionOf(msg: any): string | null {
 }
 
 // Why a result message is not an answer, or null when it is. Runs cut short (max turns, retries) are left to the parser.
-export function claudeResultFailure(msg: any): string | null {
+// Zero turns of its own is an answer only when the run forked a subagent (a slash command like /code-review).
+export function claudeResultFailure(msg: any, o: { forked?: boolean } = {}): string | null {
   if (!msg || msg.type !== 'result') return null
   const text = typeof msg.result === 'string' ? msg.result.trim() : ''
   const errors = Array.isArray(msg.errors) ? msg.errors.join('\n') : ''
   if (msg.terminal_reason === 'api_error' || msg.terminal_reason === 'model_error' || (msg.subtype === 'success' && msg.is_error)) {
     return text || errors || `Claude run failed (${msg.terminal_reason ?? 'error'})`
   }
-  if (msg.num_turns === 0) return text || errors || 'Claude run ended without a single turn'
+  if (msg.num_turns === 0 && (!o.forked || !text)) return text || errors || 'Claude run ended without a single turn'
   return null
 }
 
@@ -104,5 +105,6 @@ export function mergeUsage(parts: Array<ProviderUsage | null | undefined>): Prov
     durationMs: list.reduce((a, p) => a + (p.durationMs ?? 0), 0) || undefined,
     numTurns: list.reduce((a, p) => a + (p.numTurns ?? 0), 0) || undefined,
     sessionId: list[list.length - 1]!.sessionId ?? null,
+    ...(list.find((p) => p.cliVersion)?.cliVersion ? { cliVersion: list.find((p) => p.cliVersion)!.cliVersion } : {}),
   }
 }

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { nanoid } from 'nanoid'
 import { getDb, schema } from '../core/db/client'
 import { countRuns, metricsOverview, percentile, precisionBySkillVersion, recentRuns, recheckFunnel, reviewRunsByModel } from '../core/metrics/queries'
@@ -95,4 +96,31 @@ assert.ok(full.runsBySubkind.some((r: any) => r.subkind === 'review' && Number(r
 assert.ok(full.runsBySubkind.some((r: any) => r.subkind === 'skillgen' && Number(r.runs) === 1))
 // date filter applies to cost too: a window that excludes everything → no cost, no rows
 assert.equal(precisionBySkillVersion(d, { from: '2999-01-01' }).length, 0)
+// ── scope-review stage rows break a review down; the review's own row carries the total, so nothing counts twice ──
+const runsBefore = countRuns(d, { projectId: 'P' })
+const subkindsBefore = JSON.stringify(metricsOverview(d, { projectId: 'P' }).runsBySubkind)
+for (const subkind of ['engine', 'context', 'check', 'tier'] as const) {
+  const sid = createRun(d, schema, { kind: 'review', subkind, provider: 'claude', projectId: 'P', reviewId: 'R1', model: 'opus' })
+  recordRunUsage(d, schema, sid, { models: [{ model: 'opus', inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheCreateTokens: 0, costUsd: 3, costSource: 'reported' }], costUsd: 3, costSource: 'reported', durationMs: 1, numTurns: 1 })
+  finishRun(d, schema, sid, { status: 'error', error: 'handled' })
+}
+assert.equal(countRuns(d, { projectId: 'P' }), runsBefore, 'the run list counts reviews, not their stages')
+assert.ok(recentRuns(d, { projectId: 'P' }, { limit: 100 }).every((r: any) => !['engine', 'context', 'check', 'tier'].includes(r.subkind)))
+assert.equal(JSON.stringify(metricsOverview(d, { projectId: 'P' }).runsBySubkind), subkindsBefore, 'stage costs are not added a second time')
+// Precision is about what the AI presented as holding: refuted and hand-added findings stay out of it.
+const precBefore = precisionBySkillVersion(d, { projectId: 'P' }).find((r: any) => r.skill_version_id === 'SV1') as any
+d.insert(schema.findings).values({ id: 'R1-miss', reviewId: 'R1', fid: 'F90', severity: 'Medium', title: 'miss', introducedByPr: true, checked: true, checkedBy: 'human', humanAcceptedAt: now(), source: 'human', sortOrder: 90, createdAt: now() }).run()
+d.insert(schema.findings).values({ id: 'R1-ref', reviewId: 'R1', fid: 'F91', severity: 'Low', title: 'refuted', introducedByPr: true, checked: false, verifyStatus: 'refuted', sortOrder: 91, createdAt: now() }).run()
+const precAfter = precisionBySkillVersion(d, { projectId: 'P' }).find((r: any) => r.skill_version_id === 'SV1') as any
+assert.equal(Number(precAfter.findings), Number(precBefore.findings))
+assert.equal(Number(precAfter.human_accepted), Number(precBefore.human_accepted))
+// Guard: a scope review's total sits on its own run AND on its stage rows, so every aggregate over runs must skip the
+// stages, name the subkinds it wants, or look up one run by id. A new query that does none of these fails here.
+for (const file of ['core/metrics/queries.ts', 'core/inbox/queries.ts']) {
+  for (const q of readFileSync(file, 'utf8').match(/`[^`]*`/gs) ?? []) {
+    if (!/\b(FROM|JOIN)\s+runs\b/.test(q)) continue
+    assert.match(q, /STAGE_SUBKINDS_SQL|subkind IN \(|ON \w+\.id = /, `${file}: this runs query must skip stage rows: ${q.slice(0, 80)}`)
+  }
+}
+
 console.log('metrics-queries: all ok')

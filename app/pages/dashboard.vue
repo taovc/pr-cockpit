@@ -163,6 +163,10 @@ const tileLabel = 'text-[10px] uppercase tracking-[0.15em] text-dimmed'
             <div :class="h3">{{ $t('dashboard.automation') }}</div><p :class="sub">{{ $t('dashboard.hint.automation') }}</p>
             <div class="flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px]"><span v-for="(n, k) in data?.automation ?? {}" :key="k">{{ k }} <b>{{ n }}</b></span><span v-if="!Object.keys(data?.automation ?? {}).length" class="text-dimmed">—</span></div>
           </div>
+          <div>
+            <div :class="h3">{{ $t('dashboard.ratingData') }}</div><p :class="sub">{{ $t('dashboard.hint.ratingData') }}</p>
+            <div class="text-xs tabular-nums">{{ $t('dashboard.ratingCounts', { live: data?.ratingData?.live ?? 0, labels: data?.ratingData?.labels ?? 0, orphaned: data?.ratingData?.orphaned ?? 0 }) }}</div>
+          </div>
         </div>
       </section>
 

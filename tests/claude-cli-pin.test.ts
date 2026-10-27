@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { EXPECTED_CLAUDE_CODE_VERSION, fromVendored, resolveClaudeExecutable, sdkVersion } from '../core/agent/claude-bin'
 import { claudeCliVersionOf, claudeResultFailure, usageFromClaudeResult } from '../core/agent/usage'
-import { ClaudeRunError, consumeClaudeRun, settleClaudeRun, usageOfError } from '../core/agent/claudeRun'
+import { ClaudeRunError, consumeClaudeRun, failedJobUsage, settleClaudeRun, usageOfError } from '../core/agent/claudeRun'
 
 // ── every Claude path runs the CLI bundled with the exactly pinned SDK ──
 delete process.env.CLAUDE_CODE_EXECUTABLE
@@ -28,6 +28,8 @@ assert.match(claudeResultFailure({ ...ok, num_turns: 0, result: 'API Error: 400 
 assert.match(claudeResultFailure({ ...ok, is_error: true, num_turns: 1, terminal_reason: 'api_error', api_error_status: 404, result: "There's an issue with the selected model" })!, /selected model/)
 assert.equal(claudeResultFailure({ ...ok, terminal_reason: 'model_error', result: '' }), 'Claude run failed (model_error)')
 assert.equal(claudeResultFailure({ ...ok, result: 'API Error: the handler swallows 500s' }), null, 'a normal answer may start with "API Error"')
+assert.equal(claudeResultFailure({ ...ok, num_turns: 0, result: '10 findings, most severe first' }, { forked: true }), null, 'a forked slash command answers with zero turns of its own')
+assert.match(claudeResultFailure({ ...ok, num_turns: 0, result: 'Not logged in · Please run /login' })!, /Not logged in/, 'without a fork, zero turns is still a failure whatever the text')
 assert.equal(claudeResultFailure({ type: 'result', subtype: 'error_max_turns', is_error: true, num_turns: 60, terminal_reason: 'max_turns' }), null, 'cut-short runs are left to the parser')
 
 // ── the CLI version comes from system/init ──
@@ -62,6 +64,9 @@ const crash = await consumeClaudeRun(stream([init], new Error('aborted')), {}).c
 assert.ok(!(crash instanceof ClaudeRunError))
 assert.equal(crash.message, 'aborted')
 assert.equal(usageOfError(new Error('x')), null)
+// A job whose stage failed: that stage's usage is already in the stage list, so the error's copy is not added again.
+assert.equal(failedJobUsage([usageOfError(failed)], failed)?.costUsd, usageOfError(failed)?.costUsd)
+assert.equal(failedJobUsage([], failed)?.costUsd, usageOfError(failed)?.costUsd, 'no stage ran: the error carries the usage')
 
 // A run cut short still counts when its text parses; otherwise the error says how it ended and keeps the usage.
 const cut = await consumeClaudeRun(stream([init, { type: 'result', subtype: 'error_max_turns', is_error: true, num_turns: 60 }]), {})

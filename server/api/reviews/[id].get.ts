@@ -1,5 +1,8 @@
 import { asc, desc, eq, inArray } from 'drizzle-orm'
 import { schema } from '~core/db/client'
+import { REVIEW_STAGES } from '~core/runs/types'
+
+const isStage = (subkind: string) => (REVIEW_STAGES as readonly string[]).includes(subkind)
 
 // Everything for a single review: basics + findings (+rechecks) + posts + recent events. Serves the drawer's "AI review" tab.
 export default defineEventHandler(async (event) => {
@@ -31,7 +34,7 @@ export default defineEventHandler(async (event) => {
 
   // Observability: the latest run of this review (cost / tokens / model / skill version) + the sum over all its runs.
   const runs = d.select().from(schema.runs).where(eq(schema.runs.reviewId, id)).orderBy(desc(schema.runs.createdAt)).all()
-  const latest = runs.find((r) => r.subkind !== 'verify') ?? null
+  const latest = runs.find((r) => r.subkind !== 'verify' && !isStage(r.subkind)) ?? null
   const verifyRun = runs.find((r) => r.subkind === 'verify') ?? null
   let run: any = null
   if (latest) {
@@ -44,7 +47,7 @@ export default defineEventHandler(async (event) => {
       verify: verifyRun ? { status: verifyRun.status, costUsd: verifyRun.costUsd, durationMs: verifyRun.durationMs } : null,
     }
   }
-  const priced = runs.filter((r) => r.costUsd != null)
+  const priced = runs.filter((r) => r.costUsd != null && !isStage(r.subkind)) // stage rows are inside the review's own total
   const totalCostUsd = priced.length ? priced.reduce((a, r) => a + (r.costUsd as number), 0) : null
   // The timeline shows only non-tool events plus the last few tool ones (there are too many tool events, and SSE already shows them live)
   const events = d.select().from(schema.events).where(eq(schema.events.reviewId, id)).all()

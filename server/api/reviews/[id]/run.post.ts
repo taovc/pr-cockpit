@@ -6,13 +6,14 @@ import { nanoid } from 'nanoid'
 import { reviewQueue } from '~core/queue'
 import { fetchPrMeta } from '~core/github/gh'
 import { resolveLang } from '~core/agent/lang'
+import { hasAiFindings } from '~core/review/findingRules'
 
 // Trigger (or re-run) a review task: set it to queued and enqueue it.
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')!
   const cfg = useRuntimeConfig()
   const d = db()
-  // fresh=true → full review from scratch (wipes the findings).
+  // fresh=true → full review from scratch (replaces the AI findings; hand-added misses stay).
   // Default → the re-review path, which keeps findings + notes and judges them round by round.
   const body = (await readBody(event).catch(() => ({}))) as { fresh?: boolean }
   const fresh = body?.fresh === true
@@ -44,7 +45,7 @@ export default defineEventHandler(async (event) => {
   }
 
   // Re-review only makes sense once there is something to re-review; otherwise this is a first pass.
-  const hasFindings = d.select().from(schema.findings).where(eq(schema.findings.reviewId, id)).all().length > 0
+  const hasFindings = hasAiFindings(d.select().from(schema.findings).where(eq(schema.findings.reviewId, id)).all())
   const reReview = !fresh && hasFindings
 
   // Whatever is in the instruction box when the button is pressed steers THIS round (and only this one).
@@ -75,6 +76,7 @@ export default defineEventHandler(async (event) => {
     codexServiceTier: rc.codexServiceTier,
     lang: resolveLang(getCookie(event, 'mr-locale')),
     verifyBeforePost: !!project.verifyBeforePost,
+    engineLevel: (project as any).reviewEngineLevel ?? null,
     projectId: project.id, skillId: rc.skillId, skillVersionId: rc.skillVersionId,
   })
 

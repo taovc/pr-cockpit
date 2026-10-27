@@ -389,6 +389,8 @@
     },
     "autoMaxRounds": "Auto-fix round limit",
     "autoMaxRoundsHint": "Max fix↔re-review rounds, then pause",
+    "engineLevel": "Review engine level",
+    "engineLevelHint": "Level of the bundled /code-review finder: higher looks deeper and takes longer. Default high.",
     "verifyBeforePost": "Verify before post",
     "verifyBeforePostHint": "After a fresh review, a second read-only pass tries to refute each finding; refuted ones stay visible but unchecked.",
     "autoCooldown": "Automation cooldown (min)",
@@ -410,14 +412,61 @@
     "recheckBtn": "Check author's changes",
     "recheckTitle": "Reads the author's new commits since your last comment and judges whether each item was addressed",
     "retryBtn": "Re-run review",
-    "retryTitle": "Run a full review from scratch — clears current findings and notes",
-    "freshConfirm": "Re-run from scratch? Current findings and notes will be erased.",
+    "retryTitle": "Run a full review from scratch — the AI findings are regenerated; your added misses stay and ratings are archived",
+    "freshConfirm": "Re-run from scratch? The AI findings are regenerated; your added misses stay and ratings are archived.",
     "startFresh": "Re-run from scratch",
     "processing": "Processing…",
     "runLog": "Run log ({count} lines)",
     "expandLog": "Expand log ({count})",
     "collapseLog": "Collapse log",
     "aiSummary": "AI overall review",
+    "tier": {
+      "must": "Fix in this PR",
+      "decide": "Your call",
+      "later": "Can follow up",
+      "edge": "Edge cases, optional",
+      "refuted": "Did not hold up"
+    },
+    "rating": {
+      "must": "Must",
+      "later": "Later",
+      "noise": "Not worth it",
+      "wrong": "Wrong"
+    },
+    "evidence": {
+      "inferred": "inferred",
+      "ci": "CI shows it",
+      "preview": "seen in preview",
+      "github": "GitHub state"
+    },
+    "source": {
+      "engine": "engine",
+      "context": "project lens",
+      "both": "both passes",
+      "human": "added by you",
+      "recheck": "found on re-review"
+    },
+    "notDone": "Not checked: ",
+    "reviewMdSuggestion": "Worth adding to REVIEW.md: ",
+    "copy": "Copy",
+    "copied": "Copied",
+    "engineLine": "Engine {level}: ",
+    "engineOk": "done",
+    "engineFailed": "failed",
+    "stagesFailed": "{stages} failed: this round's findings were not checked or tiered and stay out of automation",
+    "stageName": {
+      "check": "check",
+      "tier": "tiering"
+    },
+    "reviewMdNone": "none",
+    "reviewMdLine": "REVIEW.md: {paths}",
+    "listSep": "; ",
+    "rated": "Rated {n}/{total}",
+    "markPreview": "Click to toggle between \"seen in preview\" and the original evidence",
+    "missAdd": "Add a missed issue",
+    "missLocation": "location path:line",
+    "missTitle": "what was missed, in one sentence",
+    "missSubmit": "Add",
     "instructionLabel": "Review instruction for the AI",
     "instructionPlaceholder": "What the AI should focus on / where you disagree / have it recheck something. “Recheck per my feedback” reviews this + each note.",
     "requirement": "Requirement",
@@ -848,6 +897,8 @@
     "precision": "Precision by skill version",
     "recheck": "Recheck outcomes",
     "automation": "Automation",
+    "ratingData": "Rating data",
+    "ratingCounts": "{live} on current reviews · {labels} snapshots ({orphaned} from deleted reviews)",
     "byDay": "Cost by day",
     "recent": "Recent runs",
     "col": {
@@ -899,6 +950,7 @@
       "precision": "Precision = human-accepted (ticked or posted) ÷ all findings; machine ticks (auto / engine) do not count as accepted. Cost per accepted = every run of those reviews ÷ accepted findings — what one useful finding costs.",
       "recheck": "Retraction rate: findings withdrawn after your feedback and a re-review (lower is better). Fixed rate: findings judged fixed after the author pushed. Below, the count of each finding's latest recheck status.",
       "automation": "Event counts from the automation engine: review_created / recheck / posted / fix_started / pushed, plus cooldown, capped, converged and the error kinds.",
+      "ratingData": "Your ratings and added misses, kept for eval. Cleaning up reviews or deleting a project snapshots them first, and snapshots only grow; deleting a single review deletes its snapshots too.",
       "recent": "One row per run, newest first. After the cost, ~ means estimated and +? means some turns were unpriced (the total is a lower bound); hover a row for its title or error text."
     }
   }

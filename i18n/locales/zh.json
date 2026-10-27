@@ -389,6 +389,8 @@
     },
     "autoMaxRounds": "自动修复回合上限",
     "autoMaxRoundsHint": "修复↔复查最多几轮，到顶暂停",
+    "engineLevel": "审核引擎级别",
+    "engineLevelHint": "内置 /code-review 的级别，越高查得越细、越慢。默认 high。",
     "verifyBeforePost": "发前验证",
     "verifyBeforePostHint": "首次审核后再跑一遍只读反驳；被反驳的 finding 保留可见但不勾选。",
     "autoCooldown": "自动化冷却期(分钟)",
@@ -410,14 +412,61 @@
     "recheckBtn": "复查作者改动",
     "recheckTitle": "读你上次发评论之后作者的新 commit，判断每条改了没",
     "retryBtn": "重新审核",
-    "retryTitle": "从头完整重跑审核——会清空当前 findings 和备注",
-    "freshConfirm": "从头重跑？当前 findings 和备注会被清空。",
+    "retryTitle": "从头完整重跑审核——AI findings 会重新生成；你补的漏报保留，打过的分存档",
+    "freshConfirm": "从头重跑？AI findings 会重新生成；你补的漏报保留，打过的分存档。",
     "startFresh": "从头重跑",
     "processing": "处理中…",
     "runLog": "运行日志（{count} 行）",
     "expandLog": "展开日志 ({count})",
     "collapseLog": "收起日志",
     "aiSummary": "AI 总评",
+    "tier": {
+      "must": "必须这次改",
+      "decide": "需要你拍板",
+      "later": "可以后续",
+      "edge": "边界情况，可不改",
+      "refuted": "核对不成立"
+    },
+    "rating": {
+      "must": "必须",
+      "later": "可后续",
+      "noise": "不值得提",
+      "wrong": "方向错"
+    },
+    "evidence": {
+      "inferred": "推断",
+      "ci": "CI 证实",
+      "preview": "preview 看到",
+      "github": "GitHub 状态"
+    },
+    "source": {
+      "engine": "引擎",
+      "context": "项目视角",
+      "both": "两路都报",
+      "human": "人工补充",
+      "recheck": "复审发现"
+    },
+    "notDone": "没做的检查：",
+    "reviewMdSuggestion": "建议补进 REVIEW.md：",
+    "copy": "复制",
+    "copied": "已复制",
+    "engineLine": "引擎 {level}：",
+    "engineOk": "完成",
+    "engineFailed": "失败",
+    "stagesFailed": "{stages}失败：这一轮的条目没有核对或分档，不会被自动处理",
+    "stageName": {
+      "check": "核对",
+      "tier": "分档"
+    },
+    "reviewMdNone": "无",
+    "reviewMdLine": "REVIEW.md：{paths}",
+    "listSep": "；",
+    "rated": "已打分 {n}/{total}",
+    "markPreview": "点一下在「preview 看到」和原证据之间切换",
+    "missAdd": "补一条漏报",
+    "missLocation": "位置 path:line",
+    "missTitle": "一句话说清漏了什么",
+    "missSubmit": "添加",
     "instructionLabel": "给 AI 的审核指令",
     "instructionPlaceholder": "想让 AI 重点看什么 / 你不同意哪里 / 让它重查某处。点「按我反馈复审」时 AI 会针对这里 + 每条 note 复审。",
     "requirement": "需求",
@@ -848,6 +897,8 @@
     "precision": "按 skill 版本的采纳率",
     "recheck": "复查结果",
     "automation": "自动化",
+    "ratingData": "评分数据",
+    "ratingCounts": "当前审核里 {live} 条 · 快照 {labels} 条（{orphaned} 条来自已删除的审核）",
     "byDay": "按天成本",
     "recent": "最近运行",
     "col": {
@@ -899,6 +950,7 @@
       "precision": "采纳率 = 人工采纳（勾选或已发布）÷ findings 总数；机器勾选（自动 / 引擎）不算采纳。每条采纳成本 = 这些审核的全部运行成本 ÷ 采纳数，是「一条有用 finding 值多少钱」。",
       "recheck": "撤回率：你给了反馈、复审后被撤回的 findings 占比（越低越好）。修复率：作者 push 后被判定已修复的占比。下面是每条 finding 最新复查状态的计数。",
       "automation": "自动化引擎的事件计数：review_created / recheck / posted / fix_started / pushed，以及 cooldown、capped、converged 和各类 error。",
+      "ratingData": "你打的分和补的漏报，以后用来做 eval。清理审核、删除项目前会先存成快照，快照只增不减；单独删除一条审核时连它的快照一起删。",
       "recent": "每次运行一行，按时间倒序。成本后的 ~ 表示估算值，+? 表示有未定价的轮次（总数偏低）；悬停一行看标题或错误原文。"
     }
   }

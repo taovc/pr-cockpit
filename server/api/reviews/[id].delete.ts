@@ -18,6 +18,7 @@ export default defineEventHandler(async (event) => {
     optOutPr(d, schema, review.projectId, review.prNumber, new Date().toISOString())
   }
   d.delete(schema.reviews).where(eq(schema.reviews.id, id)).run()
+  d.delete(schema.findingLabels).where(eq(schema.findingLabels.reviewId, id)).run() // its rating snapshots go with it
   removeReviewHistory(reviewHistoryRootFor(cfg.dbPath as string), id) // the prepared re-review history goes with the task
   return { ok: true }
 })

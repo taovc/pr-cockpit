@@ -1,6 +1,8 @@
-import { execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
 import type { CanUseTool, HookCallback, Options } from '@anthropic-ai/claude-agent-sdk'
 import { resolveClaudeExecutable } from '../agent/claude-bin'
 import type { RunSpec } from './types'
@@ -12,7 +14,7 @@ import { makeReviewCanUseTool, makeReviewGuardHook, REVIEW_DENY_RULES, REVIEW_DI
 // canUseTool bridge + danger hook), not in isolation.
 export function buildOptions(spec: RunSpec, hooks: { canUseTool: CanUseTool; dangerHook: HookCallback; abort: AbortController; stderr?: (d: string) => void }): Options {
   const bin = resolveClaudeExecutable()
-  const env: Record<string, string | undefined> = { ...process.env }
+  const env = cliEnv()
   if (spec.projectDirName) env.CLAUDE_CODE_PROJECT_DIR_NAME = spec.projectDirName
   const opts: Options = {
     cwd: spec.cwd,
@@ -41,8 +43,13 @@ export function buildOptions(spec: RunSpec, hooks: { canUseTool: CanUseTool; dan
   return opts
 }
 
-// Claude Code keys its per-project memory/transcript directory by the sanitised cwd. Reviews and PR sessions run in
-// worktrees, so we pin the directory to the project's main clone to keep one memory per project instead of one per worktree.
+// Claude Code keys its per-project memory/transcript directory by the sanitised cwd. This names the project's main clone
+// for worktree runs, but the CLI only honours it when CLAUDE_CONFIG_DIR is set, so today worktrees keep their own directory.
+// Where the CLI keeps projects/ (transcripts, memory): CLAUDE_CONFIG_DIR when set, else ~/.claude.
+export function claudeConfigDir(env: NodeJS.ProcessEnv = process.env): string {
+  return env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude')
+}
+
 export function projectDirNameFor(localPath: string | null | undefined): string | undefined {
   if (!localPath) return undefined
   return localPath.replace(/[^a-zA-Z0-9]/g, '-')
@@ -62,14 +69,26 @@ export type ReviewOptionsSpec = {
   abort?: AbortController
   outputSchema?: Record<string, unknown> // JSON Schema the CLI validates the final message against (structured_output on the result)
   baseBranch?: string // project instructions are read from origin/<baseBranch>; without it, from the files in cwd
+  clean?: boolean // load no configuration and no memory at all (the scope-review pipeline); everything it needs is in the prompt
+  baseRules?: boolean // append the base branch's CLAUDE.md / AGENTS.md (default true)
+  resume?: string // continue this session (a second query on the same conversation)
+  keepTranscript?: boolean // write the session to disk (needed to resume it); review runs are one-shot and write none by default
 }
 
-// Review family: only the user's own configuration is loaded; the PR branch's CLAUDE.md and .claude/ (settings, env, skills,
-// agents) are not, since the author controls them. The base branch's CLAUDE.md / AGENTS.md are appended instead.
-export function buildReviewOptions(spec: ReviewOptionsSpec): Options {
+// The identity of a parent Claude Code / desktop session the server may have been started from; the user's own CLI
+// configuration (CLAUDE_CODE_USE_BEDROCK, CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_*…) is kept.
+const SESSION_ENV = /^(CLAUDECODE|CLAUDE_PID|CLAUDE_EFFORT|CLAUDE_PREVIEW_\w+|CLAUDE_AGENT_SDK_\w+|AI_AGENT|CLAUDE_CODE_(ENTRYPOINT|SESSION_ID|SESSION_ATTENDED|CHILD_SESSION|HOST_SESSION_ID|MESSAGING_\w+|DESKTOP_APP_VERSION|EXECPATH|SDK_HAS_HOST_AUTH_REFRESH|ACCOUNT_UUID|ORGANIZATION_UUID|USER_EMAIL|OAUTH_SCOPES|TERMINAL_MCP_TOOLS|EMIT_\w+|EAGER_FLUSH|STARTUP_FAILURE_RESULTS|ENABLE_ASK_USER_QUESTION_TOOL|ENABLE_SDK_FILE_CHECKPOINTING|DISABLE_CRON|DISABLE_TERMINAL_TITLE|SIMPLE))$/
+
+export function cliEnv(base: NodeJS.ProcessEnv = process.env): Record<string, string | undefined> {
+  return Object.fromEntries(Object.entries(base).filter(([k]) => !SESSION_ENV.test(k)))
+}
+
+// Review family: only the user's own configuration is loaded; the PR branch's CLAUDE.md and .claude/ are author-controlled.
+export async function buildReviewOptions(spec: ReviewOptionsSpec): Promise<Options> {
   const bin = resolveClaudeExecutable()
-  const env: Record<string, string | undefined> = { ...process.env }
-  if (spec.projectDirName) env.CLAUDE_CODE_PROJECT_DIR_NAME = spec.projectDirName
+  const env = cliEnv()
+  if (spec.projectDirName) env.CLAUDE_CODE_PROJECT_DIR_NAME = spec.projectDirName // only honoured with CLAUDE_CONFIG_DIR set; clean runs load no memory either way
+  const rules = spec.baseRules === false ? [] : await projectRules(spec.cwd, spec.baseBranch)
   // No MCP in a review. The PR branch's own .mcp.json is also listed as disabled, in case strictMcpConfig ever stops
   // covering it: the CLI would otherwise spawn those servers at init, unseen by the three read-only layers.
   const projectMcp = projectMcpServerNames(spec.cwd)
@@ -77,16 +96,18 @@ export function buildReviewOptions(spec: ReviewOptionsSpec): Options {
     cwd: spec.cwd,
     ...(spec.model ? { model: spec.model } : {}),
     ...(spec.effort ? { effort: spec.effort as Options['effort'] } : {}),
-    systemPrompt: { type: 'preset', preset: 'claude_code', append: withProjectRules(spec.methodology, projectRules(spec.cwd, spec.baseBranch)) },
-    settingSources: ['user'],
+    systemPrompt: { type: 'preset', preset: 'claude_code', append: withProjectRules(spec.methodology, rules) },
+    settingSources: spec.clean ? [] : ['user'],
     permissionMode: 'default',
     canUseTool: makeReviewCanUseTool(),
     hooks: { PreToolUse: [{ hooks: [makeReviewGuardHook()] }] },
     disallowedTools: REVIEW_DISALLOWED_TOOLS,
-    settings: { permissions: { deny: REVIEW_DENY_RULES }, disableAllHooks: true, ...(projectMcp.length ? { disabledMcpjsonServers: projectMcp } : {}) },
+    settings: { permissions: { deny: REVIEW_DENY_RULES }, disableAllHooks: true, ...(spec.clean ? { autoMemoryEnabled: false } : {}), ...(projectMcp.length ? { disabledMcpjsonServers: projectMcp } : {}) } as Options['settings'],
     mcpServers: {},
     strictMcpConfig: true,
     maxTurns: spec.maxTurns,
+    ...(spec.resume ? { resume: spec.resume } : {}),
+    persistSession: !!spec.keepTranscript,
     ...(REVIEW_MAX_BUDGET_USD > 0 ? { maxBudgetUsd: REVIEW_MAX_BUDGET_USD } : {}),
     ...(spec.outputSchema ? { outputFormat: { type: 'json_schema', schema: spec.outputSchema } } : {}),
     env,
@@ -96,16 +117,17 @@ export function buildReviewOptions(spec: ReviewOptionsSpec): Options {
 }
 
 const RULE_FILES = ['CLAUDE.md', 'AGENTS.md']
+const pexec = promisify(execFile)
 const RULE_MAX = 60_000
 
 // The project's instruction files as the base branch has them (or as they sit in cwd when no base branch is known).
-export function projectRules(cwd: string, baseBranch?: string): Array<{ name: string; text: string }> {
+export async function projectRules(cwd: string, baseBranch?: string): Promise<Array<{ name: string; text: string }>> {
   const out: Array<{ name: string; text: string }> = []
   for (const name of RULE_FILES) {
     let text = ''
     try {
       text = baseBranch
-        ? execFileSync('git', ['-C', cwd, 'show', `origin/${baseBranch}:${name}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10_000 })
+        ? (await pexec('git', ['-C', cwd, 'show', `origin/${baseBranch}:${name}`], { encoding: 'utf8', timeout: 10_000, maxBuffer: 8 * 1024 * 1024 })).stdout
         : existsSync(join(cwd, name)) ? readFileSync(join(cwd, name), 'utf8') : ''
     } catch { /* not on that branch */ }
     if (text.trim()) out.push({ name, text: text.slice(0, RULE_MAX) })
@@ -139,6 +161,7 @@ export function buildHelperOptions(spec: { cwd: string; model?: string; effort?:
     maxTurns: 1,
     persistSession: false,
     permissionMode: 'dontAsk',
+    env: cliEnv(),
     ...(bin ? { pathToClaudeCodeExecutable: bin } : {}),
     ...(spec.abort ? { abortController: spec.abort } : {}),
   }
@@ -147,7 +170,7 @@ export function buildHelperOptions(spec: { cwd: string; model?: string; effort?:
 // Configuration probe (agent-config screen): load everything like a session would, never persist, never run a turn.
 export function buildProbeOptions(spec: { cwd: string; chrome?: boolean; projectDirName?: string; abort: AbortController }): Options {
   const bin = resolveClaudeExecutable()
-  const env: Record<string, string | undefined> = { ...process.env }
+  const env = cliEnv()
   if (spec.projectDirName) env.CLAUDE_CODE_PROJECT_DIR_NAME = spec.projectDirName
   return {
     cwd: spec.cwd,

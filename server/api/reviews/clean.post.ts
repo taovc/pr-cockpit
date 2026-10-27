@@ -2,6 +2,7 @@ import { eq, inArray } from 'drizzle-orm'
 import { z } from 'zod'
 import { schema } from '~core/db/client'
 import { removeWorktree } from '~core/git/worktree'
+import { snapshotRatings } from '~core/review/store'
 
 // Clean up tasks by category: merged = PRs already merged; posted = those whose comment was already posted. The two are independent — the frontend has a separate button and a separate confirmation for each.
 const Body = z.object({
@@ -24,7 +25,11 @@ export default defineEventHandler(async (event) => {
 
   if (ids.length) {
     for (const rid of ids) await removeWorktree(project?.localPath ?? null, cfg.reposDir as string, rid, { location: cfg.worktreeLocation as string })
-    d.delete(schema.reviews).where(inArray(schema.reviews.id, ids)).run()
+    const now = new Date().toISOString()
+    d.transaction((tx: any) => {
+      snapshotRatings(tx, schema, ids, now) // ratings stay as eval labels
+      tx.delete(schema.reviews).where(inArray(schema.reviews.id, ids)).run()
+    })
   }
   return { deleted: ids.length }
 })

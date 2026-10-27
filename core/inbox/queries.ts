@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { projectForPath } from '../runs/adopt'
+import { STAGE_SUBKINDS_SQL } from '../runs/types'
 
 // Inbox: everything that is waiting for the human. Pure read queries over the existing tables (injected db).
 // (reviews.author_updated is only ever cleared in the DB — the "author pushed" signal is computed live per review — so there is no bucket for it here.)
@@ -43,7 +44,7 @@ export function inboxOverview(db: any, opts: { sinceIso: string }): InboxOvervie
     FROM runs ru
     LEFT JOIN projects p ON p.id = ru.project_id
     LEFT JOIN reviews r ON r.id = ru.review_id
-    WHERE ru.status = 'error' AND COALESCE(ru.ended_at, ru.updated_at, ru.started_at) >= '${since}'
+    WHERE ru.status = 'error' AND ru.subkind NOT IN ${STAGE_SUBKINDS_SQL} AND COALESCE(ru.ended_at, ru.updated_at, ru.started_at) >= '${since}'
     ORDER BY COALESCE(ru.ended_at, ru.updated_at, ru.started_at) DESC
     LIMIT 50`)
   const automation = all<InboxAutomation>(db, `

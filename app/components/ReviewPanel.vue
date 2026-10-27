@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { reviewSectionRe } from '~core/agent/reviewSections'
 import { isRecheckResolved, stanceOf } from '~core/recheckAxes'
+import { isAutomatable } from '~core/automation/automatable'
 
 const props = defineProps<{ projectId: string; prNumber: number; reviewId: string | null }>()
 const emit = defineEmits<{ created: [id: string]; changed: [] }>()
@@ -10,8 +11,11 @@ type Finding = {
   id: string; fid: string; severity: 'High' | 'Medium' | 'Low'; title: string
   location: string | null; problem: string | null; detail: string | null; fix: string | null
   introducedByPr: boolean; checked: boolean; notes: string | null; verifyStatus?: 'confirmed' | 'refuted' | 'unsure' | null; verifyNote?: string | null
+  tier?: Tier | null; evidence?: string | null; source?: string | null; rating?: Rating | null
   rechecks: { round: number; status: string; stance?: string | null; stanceReason?: string | null; text: string | null; at: string }[]
 }
+type Tier = 'must' | 'decide' | 'later' | 'edge'
+type Rating = 'must' | 'later' | 'noise' | 'wrong'
 type RunInfo = { id: string; subkind: string; provider: string; model: string | null; effort: string | null; status: string; costUsd: number | null; costSource: string | null; inputTokens: number; outputTokens: number; durationMs: number; skillVersion: number | null; skillName: string | null } | null
 type ReviewData = {
   review: any
@@ -39,10 +43,13 @@ const preview = ref<any>(null) // dry-run preview of the comment to post (declar
 let es: EventSource | null = null
 let alive = true // after unmount, ignore write-backs from in-flight $fetch (closing the drawer while a preview is generating leaves the request running)
 
+let loadSeq = 0
 async function load() {
-  if (!rid.value) return
-  const d = await $fetch<ReviewData>(`/api/reviews/${rid.value}`)
-  if (!alive) return
+  const id = rid.value
+  if (!id) return
+  const seq = ++loadSeq
+  const d = await $fetch<ReviewData>(`/api/reviews/${id}`)
+  if (!alive || seq !== loadSeq || rid.value !== id) return // a newer load or another review won
   data.value = d
   emit('changed') // tell the page this review's status/content may have changed → refresh the task list
   // backfill the log from historical events (so opening a finished task still shows, line by line, what the agent did back then)
@@ -68,6 +75,7 @@ async function autoAdjustChecks() {
     if (!f.rechecks.length) continue
     const latest = f.rechecks[f.rechecks.length - 1]!
     const desired = !isRecheckResolved(latest)
+    if (desired && f.source && !isAutomatable(f)) continue // a scope finding is ticked by hand unless it is a confirmed "must"
     if (f.checked !== desired) { f.checked = desired; changed.push(f) }
   }
   if (!changed.length) return
@@ -249,6 +257,52 @@ const SKIP_REASON: Record<string, string> = {
   retracted: 'review.skipReason.retracted',
 }
 function skipReasonLabel(s: string) { const k = SKIP_REASON[s]; return k ? t(k) : s }
+
+// ── scope-review reports: tiers, evidence, ratings, misses (older reviews keep the flat list) ──
+const isScope = computed(() => !!data.value?.review?.pipelineMeta)
+const pipelineMeta = computed<{ engineLevel?: string; engineOk?: boolean; reviewMd?: string[]; failed?: Array<'check' | 'tier'> } | null>(() => {
+  try { return data.value?.review?.pipelineMeta ? JSON.parse(data.value.review.pipelineMeta) : null } catch { return null }
+})
+const GROUP_ORDER: Array<{ key: Tier | 'refuted'; folded: boolean }> = [
+  { key: 'must', folded: false }, { key: 'decide', folded: false }, { key: 'later', folded: false }, { key: 'edge', folded: true }, { key: 'refuted', folded: true },
+]
+const unfolded = ref<Record<string, boolean>>({})
+const groupOf = (f: Finding): Tier | 'refuted' => f.tier ?? (f.verifyStatus === 'refuted' ? 'refuted' : 'later')
+const groups = computed(() => {
+  const fs = data.value?.findings ?? []
+  if (!isScope.value) return [{ key: 'all', folded: false, foldable: false, items: fs }]
+  return GROUP_ORDER.map((g) => ({ key: g.key, foldable: g.folded, folded: g.folded && !unfolded.value[g.key], items: fs.filter((f) => groupOf(f) === g.key) })).filter((g) => g.items.length)
+})
+const ratedCount = computed(() => data.value?.findings.filter((f) => f.rating).length ?? 0)
+const RATINGS: Rating[] = ['must', 'later', 'noise', 'wrong']
+async function rate(f: Finding, r: Rating) {
+  const prev = f.rating ?? null
+  f.rating = prev === r ? null : r
+  try { await $fetch(`/api/findings/${f.id}`, { method: 'PATCH', body: { rating: f.rating } }) } catch { f.rating = prev }
+}
+async function togglePreviewEvidence(f: Finding) {
+  const prev = f.evidence ?? null
+  f.evidence = prev === 'preview' ? 'inferred' : 'preview'
+  try { await $fetch(`/api/findings/${f.id}`, { method: 'PATCH', body: { evidence: f.evidence } }) } catch { f.evidence = prev }
+}
+const miss = reactive({ location: '', title: '', rating: 'must' as 'must' | 'later' })
+async function addMiss() {
+  const id = rid.value
+  if (!id || !miss.title.trim() || busy.value) return
+  busy.value = 'miss'
+  try {
+    const row = await $fetch<Finding>(`/api/reviews/${id}/findings`, { method: 'POST', body: { location: miss.location.trim(), title: miss.title.trim(), rating: miss.rating } })
+    if (!alive || rid.value !== id || !data.value) return
+    data.value.findings.push(row)
+    miss.location = ''; miss.title = ''
+  } catch (e: any) { if (alive) live.value = e?.data?.statusMessage || t('common.failed') } finally { busy.value = '' }
+}
+const copied = ref(false)
+async function copySuggestion() {
+  const text = data.value?.review?.reviewMdSuggestion
+  if (!text) return
+  try { await navigator.clipboard.writeText(text); copied.value = true; setTimeout(() => { copied.value = false }, 1500) } catch { /* clipboard blocked */ }
+}
 </script>
 
 <template>
@@ -303,7 +357,7 @@ function skipReasonLabel(s: string) { const k = SKIP_REASON[s]; return k ? t(k) 
             <button class="text-dimmed hover:text-highlighted" @click="confirming = ''">{{ $t('common.cancel') }}</button>
           </template>
           <template v-else>
-            <!-- Restarts a full review from scratch (wipes findings + notes) → inline confirmation. Available in error/draft. -->
+            <!-- Restarts a full review from scratch (replaces the AI findings) → inline confirmation. Available in error/draft. -->
             <button v-if="data.review.status === 'error' || data.review.status === 'draft'" class="bg-inverted text-inverted px-3 py-1 hover:bg-inverted/90 disabled:opacity-40" :disabled="running || !!busy" :title="$t('review.retryTitle')" @click="confirming = 'fresh'">{{ $t('review.retryBtn') }}</button>
             <button class="text-muted hover:text-highlighted disabled:opacity-40" :disabled="running || !!busy" :title="$t('review.rerunTitle')" @click="confirming = 'rerun'">{{ $t('review.rerunBtn') }}</button>
             <button class="hover:text-highlighted disabled:opacity-40" :class="data.review.authorUpdated ? 'text-highlighted font-medium' : 'text-muted'" :disabled="running || !!busy" :title="$t('review.recheckTitle')" @click="confirming = 'recheck'">{{ $t('review.recheckBtn') }}</button>
@@ -328,9 +382,22 @@ function skipReasonLabel(s: string) { const k = SKIP_REASON[s]; return k ? t(k) 
       <p v-if="runLine" class="text-[11px] text-dimmed font-mono mb-3" :title="$t('review.runLineTitle')">{{ runLine }}</p>
 
       <!-- AI summary (pinned to the top) -->
-      <section v-if="data.review.conclusion" class="mb-5 border border-default rounded p-3">
+      <section v-if="data.review.conclusion || (isScope && data.review.notDone)" class="mb-5 border border-default rounded p-3">
         <div class="text-[10px] uppercase tracking-[0.15em] text-dimmed mb-1">{{ $t('review.aiSummary') }}</div>
-        <MarkdownBody :text="fmt(data.review.conclusion)" />
+        <MarkdownBody v-if="data.review.conclusion" :text="fmt(data.review.conclusion)" />
+        <template v-if="isScope">
+          <div v-if="data.review.notDone" class="text-xs text-dimmed mt-2">{{ $t('review.notDone') }}{{ data.review.notDone }}</div>
+          <div v-if="data.review.reviewMdSuggestion" class="text-xs mt-1 flex gap-2 items-start">
+            <span class="text-dimmed shrink-0">{{ $t('review.reviewMdSuggestion') }}</span>
+            <span class="flex-1 min-w-0">{{ data.review.reviewMdSuggestion }}</span>
+            <button class="text-dimmed hover:text-highlighted shrink-0" @click="copySuggestion">{{ copied ? $t('review.copied') : $t('review.copy') }}</button>
+          </div>
+          <div v-if="pipelineMeta" class="text-[11px] text-dimmed mt-2">
+            {{ $t('review.engineLine', { level: pipelineMeta.engineLevel || 'high' }) }}{{ pipelineMeta.engineOk === false ? $t('review.engineFailed') : $t('review.engineOk') }}
+            · {{ $t('review.reviewMdLine', { paths: pipelineMeta.reviewMd?.length ? pipelineMeta.reviewMd.join(', ') : $t('review.reviewMdNone') }) }}
+            <span v-if="pipelineMeta.failed?.length" class="text-error"> · {{ $t('review.stagesFailed', { stages: pipelineMeta.failed.map((k) => $t(`review.stageName.${k}`)).join(' / ') }) }}</span>
+          </div>
+        </template>
       </section>
 
       <!-- review instruction for the AI (consulted on "recheck against my feedback") -->
@@ -345,7 +412,7 @@ function skipReasonLabel(s: string) { const k = SKIP_REASON[s]; return k ? t(k) 
       </section>
 
       <!-- requirement / test path -->
-      <template v-if="data.review.requirement || data.review.testPath">
+      <template v-if="!isScope && (data.review.requirement || data.review.testPath)">
         <section v-if="data.review.requirement" class="mb-4">
           <div class="text-[10px] uppercase tracking-[0.15em] text-dimmed mb-1">{{ $t('review.requirement') }}</div>
           <MarkdownBody :text="fmt(data.review.requirement)" />
@@ -357,15 +424,27 @@ function skipReasonLabel(s: string) { const k = SKIP_REASON[s]; return k ? t(k) 
       </template>
 
       <!-- findings -->
-      <div class="text-[10px] uppercase tracking-[0.15em] text-dimmed mb-2">{{ $t('review.findings', { count: data.findings.length }) }}</div>
-      <div v-for="f in data.findings" :key="f.id" class="border-t border-default py-3">
+      <div class="text-[10px] uppercase tracking-[0.15em] text-dimmed mb-2 flex justify-between">
+        <span>{{ $t('review.findings', { count: data.findings.length }) }}</span>
+        <span v-if="data.findings.length" class="normal-case tracking-normal">{{ $t('review.rated', { n: ratedCount, total: data.findings.length }) }}</span>
+      </div>
+      <template v-for="g in groups" :key="g.key">
+        <button
+          v-if="g.key !== 'all'" class="w-full text-left text-xs font-medium mt-4 mb-1 flex items-center gap-1.5" :class="g.foldable ? 'text-dimmed hover:text-highlighted' : 'text-highlighted'"
+          :disabled="!g.foldable" @click="unfolded[g.key] = !unfolded[g.key]"
+        >
+          <span v-if="g.foldable">{{ g.folded ? '▸' : '▾' }}</span>{{ $t(`review.tier.${g.key}`) }} ({{ g.items.length }})
+        </button>
+        <div v-if="g.folded" class="text-xs text-dimmed pb-2 border-t border-default pt-2">{{ g.items.map((f) => f.title).join($t('review.listSep')) }}</div>
+        <template v-else>
+      <div v-for="f in g.items" :key="f.id" class="border-t border-default py-3">
         <div class="flex gap-3 items-start">
           <input type="checkbox" class="accent-neutral-900 dark:accent-neutral-100 mt-1" :checked="f.checked" @change="toggleFinding(f)" />
           <div class="min-w-0 flex-1">
             <div class="text-sm">
               <span class="text-xs mr-1" :class="sevCls[f.severity]">[{{ f.severity }}]</span><MarkdownBody :text="f.title" inline />
             </div>
-            <div class="text-xs text-dimmed mt-0.5">{{ f.location }}<span v-if="!f.introducedByPr"> {{ $t('review.preExisting') }}</span><span v-if="f.verifyStatus === 'refuted'" class="ml-1 text-highlighted" :title="f.verifyNote || ''">⊘ {{ $t('review.verifyRefuted') }}</span><span v-else-if="f.verifyStatus === 'confirmed'" class="ml-1" :title="f.verifyNote || ''">✓ {{ $t('review.verifyConfirmed') }}</span><span v-else-if="f.verifyStatus === 'unsure'" class="ml-1" :title="f.verifyNote || ''">? {{ $t('review.verifyUnsure') }}</span></div>
+            <div class="text-xs text-dimmed mt-0.5">{{ f.location }}<span v-if="!f.introducedByPr"> {{ $t('review.preExisting') }}</span><span v-if="f.verifyStatus === 'refuted'" class="ml-1 text-highlighted" :title="f.verifyNote || ''">⊘ {{ $t('review.verifyRefuted') }}</span><span v-else-if="f.verifyStatus === 'confirmed'" class="ml-1" :title="f.verifyNote || ''">✓ {{ $t('review.verifyConfirmed') }}</span><span v-else-if="f.verifyStatus === 'unsure'" class="ml-1" :title="f.verifyNote || ''">? {{ $t('review.verifyUnsure') }}</span><template v-if="isScope"><button v-if="f.source !== 'human' && (!f.evidence || f.evidence === 'inferred' || f.evidence === 'preview')" class="ml-1 hover:text-highlighted" :title="$t('review.markPreview')" @click="togglePreviewEvidence(f)">· {{ $t(`review.evidence.${f.evidence || 'inferred'}`) }}</button><span v-else-if="f.evidence" class="ml-1">· {{ $t(`review.evidence.${f.evidence}`) }}</span><span v-if="f.source" class="ml-1">· {{ $t(`review.source.${f.source}`) }}</span></template></div>
             <MarkdownBody v-if="f.problem" :text="f.problem" class="mt-1" />
             <details v-if="f.detail || f.fix" class="mt-1">
               <summary class="text-xs text-dimmed cursor-pointer">{{ $t('review.detailFix') }}</summary>
@@ -377,15 +456,36 @@ function skipReasonLabel(s: string) { const k = SKIP_REASON[s]; return k ? t(k) 
               <MarkdownBody v-if="r.text" :text="r.text" class="text-muted" />
               <div v-if="r.stanceReason" class="text-muted mt-0.5 flex gap-1"><span class="shrink-0">↳</span><MarkdownBody :text="r.stanceReason" /></div>
             </div>
-            <textarea
-              v-model="f.notes" rows="1" :placeholder="$t('review.notePlaceholder')"
-              class="w-full text-xs bg-muted border border-default rounded px-2 py-1 mt-2 resize-y outline-none focus:border-accented"
-              @input="saveNotes(f)"
-            />
+            <div class="flex gap-2 items-start mt-2">
+              <div class="inline-flex border border-default rounded overflow-hidden shrink-0 text-[11px]">
+                <button
+                  v-for="(r, i) in RATINGS" :key="r" class="px-1.5 py-1"
+                  :class="[f.rating === r ? 'bg-inverted text-inverted' : 'text-dimmed hover:bg-muted', i < RATINGS.length - 1 ? 'border-r border-default' : '']"
+                  @click="rate(f, r)"
+                >{{ $t(`review.rating.${r}`) }}</button>
+              </div>
+              <textarea
+                v-model="f.notes" rows="1" :placeholder="$t('review.notePlaceholder')"
+                class="flex-1 min-w-0 text-xs bg-muted border border-default rounded px-2 py-1 resize-y outline-none focus:border-accented"
+                @input="saveNotes(f)"
+              />
+            </div>
           </div>
         </div>
       </div>
+        </template>
+      </template>
       <p v-if="!data.findings.length && !running" class="text-sm text-dimmed py-4">{{ $t('review.noFindings') }}</p>
+      <form v-if="!running" class="mt-3 border-t border-default pt-3 flex flex-wrap gap-2 items-center text-xs" @submit.prevent="addMiss">
+        <span class="text-dimmed">＋ {{ $t('review.missAdd') }}</span>
+        <input v-model="miss.location" :placeholder="$t('review.missLocation')" class="w-44 bg-muted border border-default rounded px-2 py-1 outline-none focus:border-accented" />
+        <input v-model="miss.title" :placeholder="$t('review.missTitle')" class="flex-1 min-w-48 bg-muted border border-default rounded px-2 py-1 outline-none focus:border-accented" />
+        <select v-model="miss.rating" class="bg-muted border border-default rounded px-1 py-1 outline-none">
+          <option value="must">{{ $t('review.rating.must') }}</option>
+          <option value="later">{{ $t('review.rating.later') }}</option>
+        </select>
+        <button type="submit" class="border border-accented px-3 py-1 hover:bg-muted disabled:opacity-40" :disabled="!miss.title.trim() || !!busy">{{ $t('review.missSubmit') }}</button>
+      </form>
 
       <!-- global notes + publish -->
       <section v-if="data.findings.length" class="mt-5 border-t border-default pt-4">

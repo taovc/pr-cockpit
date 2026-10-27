@@ -2,7 +2,11 @@
 // A "run" is one agent execution we can attribute cost / tokens / model / skill version to.
 
 export type RunKind = 'review' | 'session'
-export type RunSubkind = 'review' | 'guided' | 'recheck' | 'skillgen' | 'session' | 'helper' | 'eval' | 'verify'
+export type RunSubkind = 'review' | 'guided' | 'recheck' | 'skillgen' | 'session' | 'helper' | 'eval' | 'verify' | ReviewStage
+// The scope-review pipeline's stages. Their rows only break a review down; the review's own row carries the total.
+export const REVIEW_STAGES = ['engine', 'context', 'check', 'tier'] as const
+export type ReviewStage = (typeof REVIEW_STAGES)[number]
+export const STAGE_SUBKINDS_SQL = `(${REVIEW_STAGES.map((s) => `'${s}'`).join(', ')})`
 export type RunStatus = 'queued' | 'running' | 'awaiting_input' | 'idle' | 'stopped' | 'done' | 'error'
 export type CostSource = 'reported' | 'estimated'
 
