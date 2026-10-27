@@ -46,7 +46,7 @@ export type RunSpec = {
   allowDanger?: boolean // let dangerous Bash commands run without a prompt (live-read on every call)
   systemAppend?: string
   chrome?: boolean // pass --chrome so the Claude in Chrome MCP connects
-  projectDirName?: string // CLAUDE_CODE_PROJECT_DIR_NAME (unifies memory across worktrees)
+  projectDirName?: string // CLAUDE_CODE_PROJECT_DIR_NAME (only honoured with CLAUDE_CONFIG_DIR set)
   // ── Codex-only knobs (ignored by the Claude host) ──
   codexServiceTier?: string | null
   ultracode?: boolean // raise the reasoning effort + prepend the deep-work instructions

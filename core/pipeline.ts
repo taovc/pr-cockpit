@@ -12,15 +12,16 @@ import { createRun, finishRun, recordRunUsage } from './runs/store'
 import { formatUsageLabel } from './runs/format'
 import type { ReviewProvider, ReviewRunner } from './agent/runners'
 import { reviewAborts } from './agent/reviewAborts'
-import { usageOfError } from './agent/claudeRun'
+import { failedJobUsage, usageOfError } from './agent/claudeRun'
 import { projectDirNameFor } from './host/options'
 import { mergeUsage } from './agent/usage'
-import { classifyFindings, runScopeReview, type StageRunner } from './review/scope'
+import { classifyFindings, runScopeReview, withFailedStages, type FailedStage, type StageRunner } from './review/scope'
 import type { FindingRow, RawFinding } from './review/assemble'
 import { contextDocPath } from './review/context'
 import { existsSync } from 'node:fs'
 import { engineLevelOf } from './review/engine'
 import { adjustedPatch, replaceFindings } from './review/store'
+import { maxFidNumber } from './review/findingRules'
 import type { ProviderUsage } from './runs/types'
 import {
   ROUND_EVENT, buildFindingIndex, buildHistoryDoc, computeRoundIntent, loadFindingHistory, writeReviewHistory,
@@ -397,16 +398,19 @@ async function runRecheckJob(ctx: ReviewJobCtx) {
     recordRunUsage(db, schema, runId, usage)
     // Scope reviews: check and tier the new issues before anything of this round is written (no half-written round).
     let classified: FindingRow[] | null = null
+    let failedStages: FailedStage[] = []
     if (ctx.provider !== 'codex' && review?.pipelineMeta && result.newFindings?.length) {
       const raw: RawFinding[] = result.newFindings.map((nf: any, i: number) => {
         const m = /^(.*?)(?::(\d+))?$/.exec(String(nf.location || ''))
         return { id: `R${i + 1}`, source: 'recheck' as const, file: m?.[1] ?? '', line: m?.[2] ? Number(m[2]) : null, title: nf.title, scenario: [nf.problem, nf.detail].filter(Boolean).join('\n'), preExisting: false }
       })
       const contextPath = contextDocPath(ctx.historyRoot, reviewId)
-      classified = (await classifyFindings({
+      const c = await classifyFindings({
         cwd: wt.path, model: ctx.model, effort: ctx.effort || undefined, abort, onTool: (n, i) => emit('tool', `${n} ${i}`), baseBranch: ctx.defaultBranch, lang: ctx.lang,
         contextPath: existsSync(contextPath) ? contextPath : null, raw, stage: stageRunner(ctx, review, wt.path, abort, recheckStageUsages), emit: (m) => emit('stage', m), projectDirName: projectDirNameFor(ctx.localPath),
-      })).rows
+      })
+      classified = c.rows
+      failedStages = c.failed
       recordRunUsage(db, schema, runId, mergeUsage(recheckStageUsages))
       recheckStageUsages.length = 0 // recorded
     }
@@ -420,7 +424,7 @@ async function runRecheckJob(ctx: ReviewJobCtx) {
       for (const r of result.rechecks) {
         const old: any = byFid.get(r.fid)
         if (!old) continue // drop verdicts with no matching old finding (new issues go through newFindings)
-        const patch = r.stance === 'adjusted' ? adjustedPatch(old, r as any) : null
+        const patch = r.stance === 'adjusted' ? adjustedPatch(old, r as any, ctx.lang) : null
         if (patch) tx.update(schema.findings).set(patch).where(eq(schema.findings.id, old.id)).run()
         tx.insert(schema.findingRechecks).values({
           id: nanoid(), findingId: old.id, round, status: r.status, stance: r.stance,
@@ -430,7 +434,7 @@ async function runRecheckJob(ctx: ReviewJobCtx) {
       }
 
       // New issues introduced by the author's new commits: a new finding (unchecked) + a "new" recheck record
-      let maxN = existing.reduce((m: number, f: any) => Math.max(m, parseInt(String(f.fid).replace(/\D/g, '')) || 0), 0)
+      let maxN = maxFidNumber(existing)
       const fresh = classified
         ? classified.map((f) => ({ values: { severity: f.severity, title: f.title, location: f.location, problem: f.problem, detail: f.detail, fix: f.fix, tier: f.tier, evidence: f.evidence, source: 'recheck', verifyStatus: f.verifyStatus, verifyNote: f.verifyNote }, text: f.problem }))
         : (result.newFindings ?? []).map((nf: any) => ({ values: { severity: nf.severity, title: nf.title, location: nf.location || null, problem: nf.problem || null, detail: nf.detail || null, fix: nf.fix || null, ...(review?.pipelineMeta ? { source: 'recheck' } : {}) }, text: nf.text || null }))
@@ -445,7 +449,7 @@ async function runRecheckJob(ctx: ReviewJobCtx) {
 
     // The post-recheck overall conclusion overwrites the AI summary; if the AI gave none (empty), keep the old summary instead of clearing it
     const newConclusion = result.conclusion?.trim()
-    setStatus('draft', { headSha: wt.headSha, authorUpdated: false, ...(newConclusion ? { conclusion: newConclusion } : {}) })
+    setStatus('draft', { headSha: wt.headSha, authorUpdated: false, ...(newConclusion ? { conclusion: newConclusion } : {}), ...(review?.pipelineMeta ? { pipelineMeta: withFailedStages(review.pipelineMeta, failedStages) } : {}) })
     finishRun(db, schema, runId, { status: 'done' })
     // Ground truth, not self-report: the agent's own tool calls say whether it opened the history we prepared.
     if (findingHistory.some((f) => f.roundTexts.length) && !historyRead) {
@@ -456,7 +460,7 @@ async function runRecheckJob(ctx: ReviewJobCtx) {
     const stopped = abort.signal.aborted
     const message = stopped ? '已停止' : (e as Error).message
     if (runId) {
-      recordRunUsage(db, schema, runId, mergeUsage([...recheckStageUsages, usageOfError(e)]))
+      recordRunUsage(db, schema, runId, failedJobUsage(recheckStageUsages, e))
       finishRun(db, schema, runId, { status: stopped ? 'stopped' : 'error', error: message })
     }
     setStatus('error', { error: message })

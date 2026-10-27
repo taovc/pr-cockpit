@@ -1,6 +1,6 @@
 import type { ProviderUsage } from '../runs/types'
 import { EXPECTED_CLAUDE_CODE_VERSION } from './claude-bin'
-import { claudeCliVersionOf, claudeResultFailure, usageFromClaudeResult } from './usage'
+import { claudeCliVersionOf, claudeResultFailure, mergeUsage, usageFromClaudeResult } from './usage'
 
 // A review-family run that ended without an answer. It carries the usage the CLI reported, so a failed run is still costed.
 export class ClaudeRunError extends Error {
@@ -8,6 +8,9 @@ export class ClaudeRunError extends Error {
 }
 
 export const usageOfError = (e: unknown): ProviderUsage | null => (e instanceof ClaudeRunError ? e.usage : null)
+
+// What a failed job spent: its stages' usage when any ran (a failed stage's usage is already among them), else the error's own.
+export const failedJobUsage = (stages: Array<ProviderUsage | null>, e: unknown): ProviderUsage | null => (stages.length ? mergeUsage(stages) : usageOfError(e))
 
 export type ClaudeRunOutput = { text: string; structured: unknown; usage: ProviderUsage | null; costUsd: number; subtype: string | null }
 

@@ -41,8 +41,8 @@ export function buildOptions(spec: RunSpec, hooks: { canUseTool: CanUseTool; dan
   return opts
 }
 
-// Claude Code keys its per-project memory/transcript directory by the sanitised cwd. Reviews and PR sessions run in
-// worktrees, so we pin the directory to the project's main clone to keep one memory per project instead of one per worktree.
+// Claude Code keys its per-project memory/transcript directory by the sanitised cwd. This names the project's main clone
+// for worktree runs, but the CLI only honours it when CLAUDE_CONFIG_DIR is set, so today worktrees keep their own directory.
 export function projectDirNameFor(localPath: string | null | undefined): string | undefined {
   if (!localPath) return undefined
   return localPath.replace(/[^a-zA-Z0-9]/g, '-')
@@ -65,6 +65,7 @@ export type ReviewOptionsSpec = {
   clean?: boolean // load no configuration and no memory at all (the scope-review pipeline); everything it needs is in the prompt
   baseRules?: boolean // append the base branch's CLAUDE.md / AGENTS.md (default true)
   resume?: string // continue this session (a second query on the same conversation)
+  keepTranscript?: boolean // write the session to disk (needed to resume it); review runs are one-shot and write none by default
 }
 
 // The identity of a parent Claude Code / desktop session the server may have been started from; the user's own CLI
@@ -99,6 +100,7 @@ export function buildReviewOptions(spec: ReviewOptionsSpec): Options {
     strictMcpConfig: true,
     maxTurns: spec.maxTurns,
     ...(spec.resume ? { resume: spec.resume } : {}),
+    persistSession: !!spec.keepTranscript,
     ...(REVIEW_MAX_BUDGET_USD > 0 ? { maxBudgetUsd: REVIEW_MAX_BUDGET_USD } : {}),
     ...(spec.outputSchema ? { outputFormat: { type: 'json_schema', schema: spec.outputSchema } } : {}),
     env,

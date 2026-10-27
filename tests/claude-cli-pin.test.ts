@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { EXPECTED_CLAUDE_CODE_VERSION, fromVendored, resolveClaudeExecutable, sdkVersion } from '../core/agent/claude-bin'
 import { claudeCliVersionOf, claudeResultFailure, usageFromClaudeResult } from '../core/agent/usage'
-import { ClaudeRunError, consumeClaudeRun, settleClaudeRun, usageOfError } from '../core/agent/claudeRun'
+import { ClaudeRunError, consumeClaudeRun, failedJobUsage, settleClaudeRun, usageOfError } from '../core/agent/claudeRun'
 
 // ── every Claude path runs the CLI bundled with the exactly pinned SDK ──
 delete process.env.CLAUDE_CODE_EXECUTABLE
@@ -64,6 +64,9 @@ const crash = await consumeClaudeRun(stream([init], new Error('aborted')), {}).c
 assert.ok(!(crash instanceof ClaudeRunError))
 assert.equal(crash.message, 'aborted')
 assert.equal(usageOfError(new Error('x')), null)
+// A job whose stage failed: that stage's usage is already in the stage list, so the error's copy is not added again.
+assert.equal(failedJobUsage([usageOfError(failed)], failed)?.costUsd, usageOfError(failed)?.costUsd)
+assert.equal(failedJobUsage([], failed)?.costUsd, usageOfError(failed)?.costUsd, 'no stage ran: the error carries the usage')
 
 // A run cut short still counts when its text parses; otherwise the error says how it ended and keeps the usage.
 const cut = await consumeClaudeRun(stream([init, { type: 'result', subtype: 'error_max_turns', is_error: true, num_turns: 60 }]), {})

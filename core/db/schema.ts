@@ -615,10 +615,12 @@ export const evalFindings = sqliteTable('eval_findings', {
   createdAt: text('created_at').notNull(),
 })
 
-// Rated AI findings copied before a fresh review replaces them, so the ratings survive as eval labels.
+// Ratings kept as eval labels: copied before a fresh review replaces findings, and before a cleanup or project deletion.
 export const findingLabels = sqliteTable('finding_labels', {
   id: text('id').primaryKey(),
   reviewId: text('review_id').notNull(),
+  repo: text('repo'), // with prNumber: which PR the snapshot belongs to once its review is gone
+  prNumber: integer('pr_number'),
   headSha: text('head_sha'),
   fid: text('fid').notNull(),
   severity: text('severity'),

@@ -39,7 +39,7 @@ export type ScopeReviewResult = {
   reviewMdSuggestion: string
   requirement: string
   reviewMd: RuleFile[]
-  meta: { engineLevel: EngineLevel; engineOk: boolean; reviewMd: string[] }
+  meta: { engineLevel: EngineLevel; engineOk: boolean; reviewMd: string[]; failed: FailedStage[] }
 }
 
 const errMsg = (e: unknown) => (e as Error)?.message ?? String(e)
@@ -60,7 +60,7 @@ export async function runScopeReview(o: ScopeReviewOptions, deps: ScopeDeps = { 
   o.emit(`并行：引擎 /code-review ${o.level} + 项目视角`)
   const [engine, context] = await Promise.allSettled([
     o.stage('engine', () => deps.engine({ cwd: o.cwd, prNumber: o.prNumber, defaultBranch: o.defaultBranch, level: o.level, model: o.model, effort: o.effort, instruction: o.instruction, projectDirName: o.projectDirName, abort: o.abort, onTool: o.onTool })),
-    o.stage('context', () => deps.context({ ...agent, contextPath, baseBranch: o.defaultBranch, correctnessLens: false })),
+    o.stage('context', () => deps.context({ ...agent, contextPath, baseBranch: o.defaultBranch, correctnessOnly: false })),
   ])
   if (o.abort?.signal.aborted) throw new Error('aborted')
   const engineOk = engine.status === 'fulfilled'
@@ -75,7 +75,7 @@ export async function runScopeReview(o: ScopeReviewOptions, deps: ScopeDeps = { 
   if (!engineOk) {
     o.emit(`引擎失败（${errMsg((engine as PromiseRejectedResult).reason)}），项目视角补一轮正确性视角`)
     try {
-      contextFindings = [...contextFindings, ...(await o.stage('context', () => deps.context({ ...agent, contextPath, baseBranch: o.defaultBranch, correctnessLens: true }))).result.findings]
+      contextFindings = [...contextFindings, ...(await o.stage('context', () => deps.context({ ...agent, contextPath, baseBranch: o.defaultBranch, correctnessOnly: true }))).result.findings]
     } catch (e) {
       if (o.abort?.signal.aborted) throw e
       o.emit(`正确性兜底也失败（${errMsg(e)}），保留首轮项目视角的结果`)
@@ -84,7 +84,7 @@ export async function runScopeReview(o: ScopeReviewOptions, deps: ScopeDeps = { 
   const raw: RawFinding[] = [...(engineOk ? fromEngine(engine.value.findings) : []), ...fromContext(contextFindings)]
   o.emit(`发现 ${raw.length} 条（引擎 ${raw.filter((f) => f.source === 'engine').length} · 项目视角 ${raw.filter((f) => f.source === 'context').length}），开始核对`)
 
-  const { rows, tier } = await deps.classify({ ...agent, baseBranch: o.defaultBranch, lang: o.lang, contextPath, raw, stage: o.stage, emit: o.emit })
+  const { rows, tier, failed } = await deps.classify({ ...agent, baseBranch: o.defaultBranch, lang: o.lang, contextPath, raw, stage: o.stage, emit: o.emit })
 
   return {
     rows,
@@ -93,23 +93,32 @@ export async function runScopeReview(o: ScopeReviewOptions, deps: ScopeDeps = { 
     requirement: ctx.requirement.text,
     reviewMdSuggestion: tier.reviewMdSuggestion,
     reviewMd: ctx.reviewMd,
-    meta: { engineLevel: o.level, engineOk, reviewMd: ctx.reviewMd.map((r) => r.path) },
+    meta: { engineLevel: o.level, engineOk, reviewMd: ctx.reviewMd.map((r) => r.path), failed },
   }
+}
+
+export type FailedStage = 'check' | 'tier'
+
+// The stored pipeline meta with the stages that failed in the latest round (shown in the drawer).
+export function withFailedStages(meta: string, failed: FailedStage[]): string {
+  try { return JSON.stringify({ ...JSON.parse(meta), failed }) } catch { return meta }
 }
 
 // Check, then tier; shared with re-reviews. A failed check leaves "unsure", a failed tier pass keeps everything as "later".
 export async function classifyFindings(o: {
   cwd: string; model?: string; effort?: string; projectDirName?: string; abort?: AbortController; onTool?: (name: string, info: string) => void
   baseBranch: string; lang?: string; contextPath?: string | null; raw: RawFinding[]; stage: StageRunner; emit: (message: string) => void
-}): Promise<{ rows: FindingRow[]; tier: TierResult }> {
+}): Promise<{ rows: FindingRow[]; tier: TierResult; failed: FailedStage[] }> {
   const agent = { cwd: o.cwd, model: o.model, effort: o.effort, projectDirName: o.projectDirName, abort: o.abort, onTool: o.onTool }
   const verdicts = new Map<string, { verdict: VerdictValue; reason: string }>()
+  const failed: FailedStage[] = []
   if (o.raw.length) {
     try {
       const check = await o.stage('check', () => runCheck({ ...agent, baseBranch: o.baseBranch, findings: o.raw }))
       for (const v of check.result.verdicts) verdicts.set(v.id, { verdict: v.verdict, reason: v.reason })
     } catch (e) {
       if (o.abort?.signal.aborted) throw e
+      failed.push('check')
       o.emit(`核对失败（${errMsg(e)}），全部标为不确定`)
     }
   }
@@ -120,7 +129,8 @@ export async function classifyFindings(o: {
     tier = (await o.stage('tier', () => runTier({ ...agent, baseBranch: o.baseBranch, lang: o.lang, contextPath: o.contextPath, findings: withVerdicts }))).result
   } catch (e) {
     if (o.abort?.signal.aborted) throw e
+    failed.push('tier')
     o.emit(`分档失败（${errMsg(e)}），全部按原文放进「可以后续」`)
   }
-  return { rows: assembleFindings(o.raw, verdicts, tier), tier }
+  return { rows: assembleFindings(o.raw, verdicts, tier), tier, failed }
 }

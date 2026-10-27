@@ -45,6 +45,8 @@ assert.equal((await cut('Read', { file_path: '/x' }, { signal: new AbortControll
 
 // Option factories: user configuration loaded (no settingSources override), three layers present
 const ro = buildReviewOptions({ cwd: '/tmp/wt', model: 'sonnet', methodology: 'M', maxTurns: 5, projectDirName: 'p' })
+assert.equal(ro.persistSession, false, 'review runs are one-shot: no transcript left under ~/.claude/projects')
+assert.equal(buildReviewOptions({ cwd: '/tmp/wt', methodology: 'M', maxTurns: 5, keepTranscript: true }).persistSession, true, 'the engine keeps one to resume it')
 assert.deepEqual(ro.mcpServers, {}, 'reviews never connect MCP')
 assert.equal(ro.strictMcpConfig, true)
 assert.equal(ro.extraArgs, undefined, 'no Claude in Chrome in a review')

@@ -453,6 +453,11 @@
     "engineLine": "Engine {level}: ",
     "engineOk": "done",
     "engineFailed": "failed",
+    "stagesFailed": "{stages} failed: this round's findings were not checked or tiered and stay out of automation",
+    "stageName": {
+      "check": "check",
+      "tier": "tiering"
+    },
     "reviewMdNone": "none",
     "reviewMdLine": "REVIEW.md: {paths}",
     "listSep": "; ",
@@ -892,6 +897,8 @@
     "precision": "Precision by skill version",
     "recheck": "Recheck outcomes",
     "automation": "Automation",
+    "ratingData": "Rating data",
+    "ratingCounts": "{live} on current reviews · {labels} snapshots ({orphaned} from deleted reviews)",
     "byDay": "Cost by day",
     "recent": "Recent runs",
     "col": {
@@ -943,6 +950,7 @@
       "precision": "Precision = human-accepted (ticked or posted) ÷ all findings; machine ticks (auto / engine) do not count as accepted. Cost per accepted = every run of those reviews ÷ accepted findings — what one useful finding costs.",
       "recheck": "Retraction rate: findings withdrawn after your feedback and a re-review (lower is better). Fixed rate: findings judged fixed after the author pushed. Below, the count of each finding's latest recheck status.",
       "automation": "Event counts from the automation engine: review_created / recheck / posted / fix_started / pushed, plus cooldown, capped, converged and the error kinds.",
+      "ratingData": "Your ratings and added misses, kept for eval. Cleaning up reviews or deleting a project snapshots them first, and snapshots only grow; deleting a single review deletes its snapshots too.",
       "recent": "One row per run, newest first. After the cost, ~ means estimated and +? means some turns were unpriced (the total is a lower bound); hover a row for its title or error text."
     }
   }

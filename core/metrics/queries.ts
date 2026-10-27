@@ -185,6 +185,18 @@ export function countRuns(db: any, f: MetricsFilter = {}): number {
   return Number(all<{ n: number }>(db, `SELECT COUNT(*) AS n FROM runs ${w.clause ? w.clause + ' AND' : 'WHERE'} subkind NOT IN ${STAGE_SUBKINDS_SQL}`, w.args)[0]?.n ?? 0)
 }
 
+// How much rating data is kept: ratings on current findings, and snapshot labels (which only grow, except when a single
+// review is deleted). Not limited by the date range: it is a storage figure.
+export function ratingData(db: any, f: MetricsFilter = {}) {
+  const p = f.projectId ?? null
+  const live = all(db, `SELECT COUNT(*) AS n FROM findings fd JOIN reviews r ON r.id = fd.review_id
+    WHERE (fd.rating IS NOT NULL OR fd.source = 'human') ${p ? 'AND r.project_id = ?' : ''}`, p ? [p] : [])[0]?.n ?? 0
+  const labels = all(db, `SELECT COUNT(*) AS n, SUM(CASE WHEN r.id IS NULL THEN 1 ELSE 0 END) AS orphaned
+    FROM finding_labels l LEFT JOIN reviews r ON r.id = l.review_id
+    ${p ? 'WHERE r.project_id = ? OR (r.id IS NULL AND l.repo = (SELECT repo FROM projects WHERE id = ?))' : ''}`, p ? [p, p] : [])[0]
+  return { live, labels: labels?.n ?? 0, orphaned: labels?.orphaned ?? 0 }
+}
+
 export function metricsOverview(db: any, f: MetricsFilter = {}) {
   const rates = loadCodexRates()
   return {
@@ -195,6 +207,7 @@ export function metricsOverview(db: any, f: MetricsFilter = {}) {
     recheck: recheckFunnel(db, f),
     automation: automationFunnel(db, f),
     costByDay: costByDay(db, f),
+    ratingData: ratingData(db, f),
     pricing: { codexRatesAsOf: rates.asOf, codexModelsPriced: Object.keys(rates.rates).length },
   }
 }

@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { schema } from '~core/db/client'
-import { enqueueRecheck } from '~core/pipeline'
+import { enqueueRecheck, enqueueReview } from '~core/pipeline'
 import { reviewQueue } from '~core/queue'
 import { fetchPrMeta } from '~core/github/gh'
 import { resolveLang } from '~core/agent/lang'
@@ -18,9 +18,6 @@ export default defineEventHandler(async (event) => {
   if (!review) throw createError({ statusCode: 404, statusMessage: 'review 不存在' })
   if (['queued', 'cloning', 'reviewing', 'recheck_requested', 'rechecking', 'posting'].includes(review.status)) {
     throw createError({ statusCode: 409, statusMessage: '该任务正在处理中，请等它完成再操作' })
-  }
-  if (!hasAiFindings(d.select().from(schema.findings).where(eq(schema.findings.reviewId, id)).all())) {
-    throw createError({ statusCode: 409, statusMessage: '还没有 AI 审核结果可复审，请先运行审核' })
   }
   const project = d.select().from(schema.projects).where(eq(schema.projects.id, review.projectId)).get()
   if (!project) throw createError({ statusCode: 404, statusMessage: '项目不存在' })
@@ -40,19 +37,25 @@ export default defineEventHandler(async (event) => {
 
   if (review.reviewInstruction) recordRoundInstruction(d, schema, id, review.reviewInstruction, nanoid(), new Date().toISOString())
 
+  // No AI findings yet (a clean review, or only hand-added misses): there is nothing to re-review, so this is a first pass.
+  const firstPass = !hasAiFindings(d.select().from(schema.findings).where(eq(schema.findings.reviewId, id)).all())
+  const status = firstPass ? 'queued' : 'recheck_requested'
   reviewQueue.setLimit(Number(cfg.maxConcurrency) || 3)
   // Clear the previous round's error when re-entering a re-review (it may have been restarted from the error state)
-  d.update(schema.reviews).set({ status: 'recheck_requested', error: null, updatedAt: new Date().toISOString() }).where(eq(schema.reviews.id, id)).run()
+  d.update(schema.reviews).set({ status, error: null, updatedAt: new Date().toISOString() }).where(eq(schema.reviews.id, id)).run()
 
   const rc = resolveReviewConfig(d, project)
-  enqueueRecheck({
+  const enqueue = firstPass ? enqueueReview : enqueueRecheck
+  enqueue({
     db: d, schema, reviewId: id,
     repo: project.repo, prNumber: review.prNumber, branch,
     defaultBranch: project.defaultBranch, localPath: project.localPath,
     methodology: rc.methodology,
     historyRoot: reviewHistoryRootFor(cfg.dbPath as string),
     reposDir: cfg.reposDir as string, worktreeLocation: cfg.worktreeLocation as string, provider: rc.provider, model: rc.model, effort: rc.effort, codexServiceTier: rc.codexServiceTier, lang: resolveLang(getCookie(event, 'mr-locale')),
+    verifyBeforePost: !!project.verifyBeforePost,
+    engineLevel: (project as any).reviewEngineLevel ?? null,
     projectId: project.id, skillId: rc.skillId, skillVersionId: rc.skillVersionId,
   })
-  return { ok: true, status: 'recheck_requested' }
+  return { ok: true, status }
 })

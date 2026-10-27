@@ -2,6 +2,8 @@ import { eq } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import { z } from 'zod'
 import { schema } from '~core/db/client'
+import { REVIEW_INFLIGHT } from '~core/automation/decide'
+import { maxFidNumber } from '~core/review/findingRules'
 
 // A missed issue the reviewer adds by hand: posted like any other finding, kept when a fresh review replaces the rest.
 const Body = z.object({
@@ -17,11 +19,11 @@ export default defineEventHandler(async (event) => {
   const d = db()
   const review = d.select().from(schema.reviews).where(eq(schema.reviews.id, id)).get()
   if (!review) throw createError({ statusCode: 404, statusMessage: 'review 不存在' })
-  if (['queued', 'cloning', 'reviewing', 'recheck_requested', 'rechecking', 'posting'].includes(review.status)) {
+  if (REVIEW_INFLIGHT.includes(review.status)) {
     throw createError({ statusCode: 409, statusMessage: `当前状态（${review.status}）不能补漏报，请等任务完成` })
   }
   const existing = d.select().from(schema.findings).where(eq(schema.findings.reviewId, id)).all()
-  const n = existing.reduce((m, f) => Math.max(m, parseInt(String(f.fid).replace(/\D/g, '')) || 0), 0) + 1
+  const n = maxFidNumber(existing) + 1
   const now = new Date().toISOString()
   const row = {
     id: nanoid(), reviewId: id, fid: `F${n}`, severity: 'Medium' as const, title: parsed.data.title, location: parsed.data.location || null,

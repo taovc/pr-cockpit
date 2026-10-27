@@ -13,7 +13,7 @@ export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')!
   const cfg = useRuntimeConfig()
   const d = db()
-  // fresh=true → full review from scratch (wipes the findings).
+  // fresh=true → full review from scratch (replaces the AI findings; hand-added misses stay).
   // Default → the re-review path, which keeps findings + notes and judges them round by round.
   const body = (await readBody(event).catch(() => ({}))) as { fresh?: boolean }
   const fresh = body?.fresh === true

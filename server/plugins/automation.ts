@@ -46,13 +46,13 @@ export default defineNitroPlugin((nitroApp) => {
     dispatchRecheck: async (reviewId) => {
       await $fetch(`/api/reviews/${reviewId}/recheck`, { method: 'POST', headers: cookieHeader })
     },
-    // Auto-post comments: select every finding → call the post endpoint (dryRun=false really posts to GitHub).
+    // Auto-post comments: tick the automatable findings → call the post endpoint (dryRun=false really posts to GitHub).
     // If the post endpoint returns 4xx because there is "nothing to post" (e.g. the re-check filtered out every
     // finding), push the review out of draft (→ ready_to_post) to stop the bleeding; otherwise decide would pick
     // post again every round and loop forever on the same 400. Other errors (network/422) are propagated as before,
     // so the engine logs them and retries next round.
     dispatchPost: async (reviewId) => {
-      // Tick everything for auto-post, but never overwrite a human's own decision provenance.
+      // Tick what automation may post (isAutomatable), but never overwrite a human's own decision provenance.
       const ids = (d.select().from(schema.findings).where(eq(schema.findings.reviewId, reviewId)).all() as any[]).filter(isAutomatable).map((f) => f.id)
       if (ids.length) {
         d.update(schema.findings)

@@ -16,8 +16,7 @@ type Out<T> = { result: T; usage: ProviderUsage | null }
 async function runAgent<T extends z.ZodType>(o: AgentBase & { system: string; prompt: string; schema: T; maxTurns: number; baseBranch?: string; baseRules?: boolean }): Promise<Out<z.infer<T>>> {
   const stream = query({
     prompt: o.prompt,
-    // One query, never resumed: no transcript is written.
-    options: { ...buildReviewOptions({ cwd: o.cwd, model: o.model, effort: o.effort, methodology: withContract(o.system), maxTurns: o.maxTurns, clean: true, projectDirName: o.projectDirName, baseBranch: o.baseBranch, baseRules: o.baseRules, abort: o.abort, outputSchema: jsonSchemaFor(o.schema) }), persistSession: false },
+    options: buildReviewOptions({ cwd: o.cwd, model: o.model, effort: o.effort, methodology: withContract(o.system), maxTurns: o.maxTurns, clean: true, projectDirName: o.projectDirName, baseBranch: o.baseBranch, baseRules: o.baseRules, abort: o.abort, outputSchema: jsonSchemaFor(o.schema) }),
   })
   const out = await consumeClaudeRun(stream, {
     model: o.model,
@@ -38,6 +37,8 @@ export const ContextFindingSchema = z.object({
 })
 const ContextResultSchema = z.object({ findings: z.array(ContextFindingSchema).default([]) })
 
+const CONTEXT_RULES = `Rules: every finding cites file and line and states one concrete consequence; no source reference, no finding. Do not filter by impact or by "pre-existing" — report them and mark preExisting. Project memory entries are leads: confirm them in the code before using them, and never quote memory or REVIEW.md text in a finding (they are private; findings may be posted publicly). Read other repositories only from origin/<branch> as the context file says. Never edit files or run git/gh write commands.`
+
 const CONTEXT_SYSTEM = `You are the project-context reviewer of a pull request. A separate bug finder already looks for correctness bugs; you cover what it cannot know: this project's history, conventions and decisions.
 Lenses:
 - Same-class issues: the PR fixes or adds something; find the same kind of problem elsewhere in the files or flow it touches, including problems that existed before the PR.
@@ -46,12 +47,15 @@ Lenses:
 - Product decisions and business rules: behaviour that contradicts REVIEW.md, decision records or business-rule files.
 - Cross-boundary: when the change is read or written by another repo, service or external system (API, callback, event, queue, shared table or field, generated data, file path, env or secret name), open the other side and check producer vs consumer, deploy order and environment differences.
 - Any extra lens REVIEW.md defines for this kind of change.
-Rules: every finding cites file and line and states one concrete consequence; no source reference, no finding. Do not filter by impact or by "pre-existing" — report them and mark preExisting. Project memory entries are leads: confirm them in the code before using them, and never quote memory or REVIEW.md text in a finding (they are private; findings may be posted publicly). Read other repositories only from origin/<branch> as the context file says. Never edit files or run git/gh write commands.`
+${CONTEXT_RULES}`
 
-export async function runContextPass(o: AgentBase & { contextPath: string; baseBranch: string; correctnessLens: boolean }): Promise<Out<z.infer<typeof ContextResultSchema>>> {
-  const extra = o.correctnessLens ? '\n\nThe bug finder failed this time: also look for correctness bugs (wrong logic, unhandled errors, races, data or permission errors) in the change.' : ''
+// Stands in for the bug finder when it failed; the project lenses already ran.
+const CORRECTNESS_SYSTEM = `You are the bug finder of a pull request this time. Look only for correctness bugs in the change: wrong logic, unhandled errors, races, wrong data or permissions, broken contracts with the code it calls or that calls it. Project conventions and history are covered by another pass.
+${CONTEXT_RULES}`
+
+export async function runContextPass(o: AgentBase & { contextPath: string; baseBranch: string; correctnessOnly: boolean }): Promise<Out<z.infer<typeof ContextResultSchema>>> {
   return runAgent({
-    ...o, system: CONTEXT_SYSTEM + extra, schema: ContextResultSchema, maxTurns: 60, baseBranch: o.baseBranch,
+    ...o, system: o.correctnessOnly ? CORRECTNESS_SYSTEM : CONTEXT_SYSTEM, schema: ContextResultSchema, maxTurns: 60, baseBranch: o.baseBranch,
     prompt: `Read the review context file first: ${o.contextPath}\nThen review the change through your lenses and return the findings through the structured output (English).`,
   })
 }

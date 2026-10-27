@@ -1,4 +1,4 @@
-import { execFile, execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -27,7 +27,7 @@ const sha = (s: string) => createHash('sha256').update(s).digest('hex')
 
 // REVIEW.md from the project's clone up to the home directory, nearest first. The clone's own copy is read from the base
 // branch so a PR cannot rewrite the rules it is reviewed by; the ones above the clone are plain files.
-export function findReviewMd(localPath: string, defaultBranch: string, home = homedir()): { files: RuleFile[]; searched: string[] } {
+export async function findReviewMd(localPath: string, defaultBranch: string, home = homedir()): Promise<{ files: RuleFile[]; searched: string[] }> {
   const files: RuleFile[] = []
   const searched: string[] = []
   const root = resolve(localPath)
@@ -38,7 +38,7 @@ export function findReviewMd(localPath: string, defaultBranch: string, home = ho
     if (dir === root) {
       searched.push(`origin/${defaultBranch}:REVIEW.md in ${root}`)
       try {
-        const text = execFileSync('git', ['-C', root, 'show', `origin/${defaultBranch}:REVIEW.md`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10_000 })
+        const { stdout: text } = await pexec('git', ['-C', root, 'show', `origin/${defaultBranch}:REVIEW.md`], { encoding: 'utf8', timeout: 10_000, maxBuffer: 8 * 1024 * 1024 })
         if (text.trim()) files.push({ path, text, sha: sha(text), from: 'base-branch' })
       } catch { /* not on the base branch */ }
     } else {
@@ -89,7 +89,7 @@ export async function otherReposFor(rules: RuleFile[], projects: Array<{ repo: s
   const named = (p: { repo: string; localPath: string | null }) => {
     const path = p.localPath!.replace(/\/+$/, '')
     const base = path.split('/').pop() ?? ''
-    const word = base.length >= 4 && new RegExp(`(^|[^\\w-])${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\w-])`).test(text)
+    const word = base.length >= 4 && new RegExp(`(^|[^\\w./-])${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\w./-])`).test(text) // a whole word, not part of a path
     return (path.length > 1 && text.includes(path)) || text.includes(p.repo) || word
   }
   const hits = projects.filter((p) => p.repo !== selfRepo && p.localPath && named(p))
@@ -107,7 +107,7 @@ export async function gatherReviewContext(o: {
   projectDirName?: string
   projects: Array<{ repo: string; localPath: string | null; defaultBranch: string }>
 }): Promise<ReviewContext & { prTitle: string }> {
-  const { files, searched } = findReviewMd(o.localPath, o.defaultBranch)
+  const { files, searched } = await findReviewMd(o.localPath, o.defaultBranch)
   let src: PrReviewSources = { title: '', body: '', closingIssues: [], commits: [], checks: [] }
   let unavailable: string | undefined
   try { src = await fetchPrReviewSources(o.repo, o.prNumber) } catch (e) { unavailable = (e as Error).message }

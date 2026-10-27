@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { nanoid } from 'nanoid'
 import { getDb, schema } from '../core/db/client'
 import { countRuns, metricsOverview, percentile, precisionBySkillVersion, recentRuns, recheckFunnel, reviewRunsByModel } from '../core/metrics/queries'
@@ -113,4 +114,13 @@ d.insert(schema.findings).values({ id: 'R1-ref', reviewId: 'R1', fid: 'F91', sev
 const precAfter = precisionBySkillVersion(d, { projectId: 'P' }).find((r: any) => r.skill_version_id === 'SV1') as any
 assert.equal(Number(precAfter.findings), Number(precBefore.findings))
 assert.equal(Number(precAfter.human_accepted), Number(precBefore.human_accepted))
+// Guard: a scope review's total sits on its own run AND on its stage rows, so every aggregate over runs must skip the
+// stages, name the subkinds it wants, or look up one run by id. A new query that does none of these fails here.
+for (const file of ['core/metrics/queries.ts', 'core/inbox/queries.ts']) {
+  for (const q of readFileSync(file, 'utf8').match(/`[^`]*`/gs) ?? []) {
+    if (!/\b(FROM|JOIN)\s+runs\b/.test(q)) continue
+    assert.match(q, /STAGE_SUBKINDS_SQL|subkind IN \(|ON \w+\.id = /, `${file}: this runs query must skip stage rows: ${q.slice(0, 80)}`)
+  }
+}
+
 console.log('metrics-queries: all ok')

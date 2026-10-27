@@ -171,6 +171,8 @@ function ensureColumns(sqlite: Database.Database) {
     ['reviews', 'review_md_suggestion', 'TEXT'],
     ['reviews', 'pipeline_meta', 'TEXT'],
     ['projects', 'review_engine_level', "TEXT NOT NULL DEFAULT 'high'"],
+    ['finding_labels', 'repo', 'TEXT'],
+    ['finding_labels', 'pr_number', 'INTEGER'],
     ['run_turns', 'message_uuid', 'TEXT'],
   ]
   for (const [table, col, type] of adds) {

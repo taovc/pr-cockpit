@@ -63,7 +63,8 @@ export async function runEngine(opts: {
   onTool?: (name: string, info: string) => void
 }): Promise<{ findings: EngineFinding[]; usage: ProviderUsage | null; text: string; trace: string[] }> {
   const abort = new AbortController()
-  const timer = setTimeout(() => abort.abort(), ENGINE_TIMEOUT_MS)
+  let timedOut = false
+  const timer = setTimeout(() => { timedOut = true; abort.abort() }, ENGINE_TIMEOUT_MS)
   const relay = () => abort.abort()
   if (opts.abort?.signal.aborted) abort.abort() // stopped before this stage began
   else opts.abort?.signal.addEventListener('abort', relay, { once: true })
@@ -76,7 +77,7 @@ export async function runEngine(opts: {
     trace.push(`${Math.round((Date.now() - t0) / 1000)}s ${m.type}/${m.subtype ?? ''}${m.task_id ? ` task=${m.task_id}` : ''}${m.status ? ` status=${m.status}` : ''}${m.is_backgrounded != null ? ` bg=${m.is_backgrounded}` : ''}${m.type === 'result' ? ` turns=${m.num_turns} ${String(m.result ?? '').slice(0, 80).replace(/\n/g, ' ')}` : ''}`)
   }
   const onToolUse = (b: any) => opts.onTool?.(b.name, String(b.input?.command ?? b.input?.description ?? b.input?.pattern ?? b.input?.file_path ?? '').slice(0, 80))
-  const base = { cwd: opts.cwd, model: opts.model, effort: opts.effort, methodology: buildEngineAppend(opts.instruction), clean: true, baseBranch: opts.defaultBranch, projectDirName: opts.projectDirName, abort }
+  const base = { cwd: opts.cwd, model: opts.model, effort: opts.effort, methodology: buildEngineAppend(opts.instruction), clean: true, baseBranch: opts.defaultBranch, projectDirName: opts.projectDirName, abort, keepTranscript: true }
   try {
     // 1. No output schema here: the forked subagent would take the StructuredOutput tool and the main thread get nothing.
     let reviewed!: () => void
@@ -89,6 +90,7 @@ export async function runEngine(opts: {
     const review = await consumeClaudeRun(query({ prompt: turns, options: buildReviewOptions({ ...base, maxTurns: 30 }) }), {
       model: opts.model, onToolUse, onMessage: (m) => { note(m); gate.onMessage(m) }, onResult: gate.onResult,
     })
+    if (timedOut) throw new ClaudeRunError('timed out', review.usage) // the first query swallowed the abort; no point resuming
     sessionId ??= review.usage?.sessionId ?? undefined
     if (!sessionId) throw new ClaudeRunError('the engine session has no id to continue', review.usage)
     // 2. The same conversation, asked for its findings through the CLI-validated structured output.
@@ -101,6 +103,9 @@ export async function runEngine(opts: {
       return parseStructured(EngineResultSchema, out.structured, out.text)
     })
     return { findings: result.findings, usage, text: review.text, trace }
+  } catch (e) {
+    if (timedOut) throw new ClaudeRunError(`the engine timed out after ${ENGINE_TIMEOUT_MS / 60_000} minutes`, usageOfError(e))
+    throw e
   } finally {
     clearTimeout(timer)
     opts.abort?.signal.removeEventListener('abort', relay)
@@ -108,9 +113,7 @@ export async function runEngine(opts: {
   }
 }
 
-// The engine needs its transcript only to resume once. The CLI files it under a directory named after the worktree
-// (CLAUDE_CODE_PROJECT_DIR_NAME is honoured only with CLAUDE_CONFIG_DIR set), so remove this session's files and the
-// directory once it is empty; other sessions' files are never touched.
+// After its one resume the engine's transcript goes; other sessions' files in that directory stay.
 export function dropTranscript(sessionId: string, configDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude')): void {
   if (!/^[\w-]+$/.test(sessionId)) return
   const root = join(configDir, 'projects')

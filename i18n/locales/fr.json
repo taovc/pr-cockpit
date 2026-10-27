@@ -453,6 +453,11 @@
     "engineLine": "Moteur {level} : ",
     "engineOk": "terminé",
     "engineFailed": "échec",
+    "stagesFailed": "{stages} en échec : les constats de ce tour ne sont ni vérifiés ni classés et restent hors automatisation",
+    "stageName": {
+      "check": "vérification",
+      "tier": "classement"
+    },
     "reviewMdNone": "aucun",
     "reviewMdLine": "REVIEW.md : {paths}",
     "listSep": " ; ",
@@ -892,6 +897,8 @@
     "precision": "Précision par version de skill",
     "recheck": "Résultats des re-vérifications",
     "automation": "Automatisation",
+    "ratingData": "Données de notation",
+    "ratingCounts": "{live} sur les revues actuelles · {labels} instantanés ({orphaned} de revues supprimées)",
     "byDay": "Coût par jour",
     "recent": "Exécutions récentes",
     "col": {
@@ -943,6 +950,7 @@
       "precision": "Précision = acceptés par un humain (cochés ou publiés) ÷ tous les findings ; les coches machine (auto / moteur) ne comptent pas. Coût par accepté = toutes les exécutions de ces revues ÷ findings acceptés — ce que coûte un finding utile.",
       "recheck": "Taux de retrait : findings retirés après votre retour et une re-revue (plus bas = mieux). Taux de correction : findings jugés corrigés après le push de l'auteur. Dessous, le décompte du dernier statut de re-vérification de chaque finding.",
       "automation": "Décomptes d'événements du moteur d'automatisation : review_created / recheck / posted / fix_started / pushed, plus cooldown, capped, converged et les erreurs.",
+      "ratingData": "Vos notes et oublis ajoutés, conservés pour l’éval. Nettoyer des revues ou supprimer un projet les enregistre d’abord en instantanés, qui ne font que croître ; supprimer une seule revue supprime aussi ses instantanés.",
       "recent": "Une ligne par exécution, la plus récente en premier. Après le coût, ~ signifie estimé et +? que certains tours ne sont pas tarifés (le total est un minimum) ; survolez une ligne pour son titre ou le texte de l'erreur."
     }
   }

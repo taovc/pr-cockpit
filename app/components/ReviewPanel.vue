@@ -261,7 +261,7 @@ function skipReasonLabel(s: string) { const k = SKIP_REASON[s]; return k ? t(k) 
 
 // ── scope-review reports: tiers, evidence, ratings, misses (older reviews keep the flat list) ──
 const isScope = computed(() => !!data.value?.review?.pipelineMeta)
-const pipelineMeta = computed<{ engineLevel?: string; engineOk?: boolean; reviewMd?: string[] } | null>(() => {
+const pipelineMeta = computed<{ engineLevel?: string; engineOk?: boolean; reviewMd?: string[]; failed?: Array<'check' | 'tier'> } | null>(() => {
   try { return data.value?.review?.pipelineMeta ? JSON.parse(data.value.review.pipelineMeta) : null } catch { return null }
 })
 const GROUP_ORDER: Array<{ key: Tier | 'refuted'; folded: boolean }> = [
@@ -296,7 +296,7 @@ async function addMiss() {
     if (!alive || rid.value !== id || !data.value) return
     data.value.findings.push(row)
     miss.location = ''; miss.title = ''
-  } finally { busy.value = '' }
+  } catch (e: any) { if (alive) live.value = e?.data?.statusMessage || t('common.failed') } finally { busy.value = '' }
 }
 const copied = ref(false)
 async function copySuggestion() {
@@ -396,6 +396,7 @@ async function copySuggestion() {
           <div v-if="pipelineMeta" class="text-[11px] text-dimmed mt-2">
             {{ $t('review.engineLine', { level: pipelineMeta.engineLevel || 'high' }) }}{{ pipelineMeta.engineOk === false ? $t('review.engineFailed') : $t('review.engineOk') }}
             · {{ $t('review.reviewMdLine', { paths: pipelineMeta.reviewMd?.length ? pipelineMeta.reviewMd.join(', ') : $t('review.reviewMdNone') }) }}
+            <span v-if="pipelineMeta.failed?.length" class="text-error"> · {{ $t('review.stagesFailed', { stages: pipelineMeta.failed.map((k) => $t(`review.stageName.${k}`)).join(' / ') }) }}</span>
           </div>
         </template>
       </section>

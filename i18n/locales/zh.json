@@ -453,6 +453,11 @@
     "engineLine": "引擎 {level}：",
     "engineOk": "完成",
     "engineFailed": "失败",
+    "stagesFailed": "{stages}失败：这一轮的条目没有核对或分档，不会被自动处理",
+    "stageName": {
+      "check": "核对",
+      "tier": "分档"
+    },
     "reviewMdNone": "无",
     "reviewMdLine": "REVIEW.md：{paths}",
     "listSep": "；",
@@ -892,6 +897,8 @@
     "precision": "按 skill 版本的采纳率",
     "recheck": "复查结果",
     "automation": "自动化",
+    "ratingData": "评分数据",
+    "ratingCounts": "当前审核里 {live} 条 · 快照 {labels} 条（{orphaned} 条来自已删除的审核）",
     "byDay": "按天成本",
     "recent": "最近运行",
     "col": {
@@ -943,6 +950,7 @@
       "precision": "采纳率 = 人工采纳（勾选或已发布）÷ findings 总数；机器勾选（自动 / 引擎）不算采纳。每条采纳成本 = 这些审核的全部运行成本 ÷ 采纳数，是「一条有用 finding 值多少钱」。",
       "recheck": "撤回率：你给了反馈、复审后被撤回的 findings 占比（越低越好）。修复率：作者 push 后被判定已修复的占比。下面是每条 finding 最新复查状态的计数。",
       "automation": "自动化引擎的事件计数：review_created / recheck / posted / fix_started / pushed，以及 cooldown、capped、converged 和各类 error。",
+      "ratingData": "你打的分和补的漏报，以后用来做 eval。清理审核、删除项目前会先存成快照，快照只增不减；单独删除一条审核时连它的快照一起删。",
       "recent": "每次运行一行，按时间倒序。成本后的 ~ 表示估算值，+? 表示有未定价的轮次（总数偏低）；悬停一行看标题或错误原文。"
     }
   }
