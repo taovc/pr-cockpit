@@ -7,7 +7,7 @@ import { CodexEventMapper } from './mapEvents'
 import { helperPolicy, reviewPolicy, sessionPolicy, type CodexPolicy } from './policy'
 import { codexSessionContract, codexUltracodePrompt } from './prompts'
 import { toCodexEffort } from '../agent/codexAgent'
-import { codexUltracodeEffort, getCodexModels } from '../agent/codexModels'
+import { codexUltracodeEffort, getCodexModelCatalog } from '../agent/codexModels'
 import { shouldBlockCodexCommand } from '../agent/commandGuard'
 import { usageFromCodexTurn } from '../agent/usage'
 import { answerPending, insertPromptRow, resolvePromptRow, type PendingPrompt } from '../host/permissions'
@@ -77,7 +77,7 @@ function developerInstructions(spec: RunSpec): string {
 }
 
 async function effortFor(spec: RunSpec): Promise<string | undefined> {
-  if (spec.ultracode) return codexUltracodeEffort(await getCodexModels().catch(() => []), spec.model)
+  if (spec.ultracode) return codexUltracodeEffort(await getCodexModelCatalog().catch(() => []), spec.model)
   return toCodexEffort(spec.effort)
 }
 

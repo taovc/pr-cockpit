@@ -1,8 +1,16 @@
 {
-  "_comment": "Copy to data/codex-rates.json and fill in the USD-per-1M-token prices from your OpenAI plan. Keys are model-name prefixes (longest prefix wins; use 'codex-default' for runs on the SDK default model). All-zero entries are ignored, so nothing is ever priced as free by mistake.",
-  "asOf": "2026-08-01",
+  "_comment": "Copy to data/codex-rates.json and fill in the USD-per-1M-token prices from your OpenAI plan. Key every rate by the full model slug from the Codex model list (e.g. gpt-6.2-sol): matching is longest-prefix, so a bare family key like 'gpt-6' would price gpt-6.2-astra and gpt-6.2-sol the same although they differ. Use 'codex-default' for runs on the SDK default model. All-zero entries are ignored, so nothing is ever priced as free by mistake. The numbers below are OpenAI's Standard short-context (up to 272K input tokens) API prices as of asOf; gpt-5.6-sol is left out because its listed price was a promotion ending 2026-11-30.",
+  "asOf": "2026-11-24",
   "rates": {
-    "gpt-5": { "input": 0, "cachedInput": 0, "output": 0 },
+    "gpt-6.2-sol": { "input": 2, "cachedInput": 0.1, "output": 10 },
+    "gpt-6.2-astra": { "input": 8, "cachedInput": 0.4, "output": 40 },
+    "gpt-6.1-terra": { "input": 1, "cachedInput": 0.05, "output": 5 },
+    "gpt-6.1-sol": { "input": 2, "cachedInput": 0.1, "output": 10 },
+    "gpt-6-astra": { "input": 10, "cachedInput": 1, "output": 50 },
+    "gpt-6-sol": { "input": 2, "cachedInput": 0.2, "output": 10 },
+    "gpt-6-luna": { "input": 0.1, "cachedInput": 0.01, "output": 0.5 },
+    "gpt-5.6-terra": { "input": 2, "cachedInput": 0.2, "output": 12 },
+    "gpt-5.6-luna": { "input": 0.2, "cachedInput": 0.02, "output": 1.2 },
     "codex-default": { "input": 0, "cachedInput": 0, "output": 0 }
   }
 }
