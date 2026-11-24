@@ -394,7 +394,7 @@
     "verifyBeforePost": "Verify before post",
     "verifyBeforePostHint": "After a fresh review, a second read-only pass tries to refute each finding; refuted ones stay visible but unchecked.",
     "verifyCommand": "Pre-upload check",
-    "verifyCommandHint": "Runs in the PR worktree before an upload (automatic or yours); a failure blocks it. Only this setting is used, never anything read from the PR branch. Empty = no check.",
+    "verifyCommandHint": "Runs in the PR worktree before an upload (automatic or yours); a failure blocks it. Only this setting is used, never anything read from the PR branch. A check that changes files also fails. It runs with CI=1 and without credential environment variables, but with network access and the PR's own scripts: it catches mistakes, not a hostile change. Empty = no check.",
     "verifyCommandPlaceholder": "e.g. pnpm typecheck && pnpm test",
     "autoCooldown": "Automation cooldown (min)",
     "autoCooldownHint": "Delay after a new commit, 0 = off"

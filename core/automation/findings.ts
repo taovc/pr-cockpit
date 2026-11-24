@@ -1,4 +1,4 @@
-import { eq, asc, inArray } from 'drizzle-orm'
+import { eq, asc, inArray, sql } from 'drizzle-orm'
 import { isRecheckResolved } from '../recheckAxes'
 import { isAutomatable, isUnattendedAutomatable } from './automatable'
 
@@ -47,4 +47,23 @@ export function reviewFindingStats(db: any, schema: any, reviewId: string): Revi
     return !rc || !isRecheckResolved(rc) // never rechecked, or the latest round left it open → still to fix
   })
   return { total: findings.filter(isUnattendedAutomatable).length, actionable: actionableFindings.length, actionableFindings }
+}
+
+// Before an unattended post: tick what the stricter gate allows and untick the machine ticks it rejects (the drawer's
+// 'auto' tick or an earlier round's 'engine' tick on a Low / noise-rated scope finding). A human's tick is left alone.
+export function prepareUnattendedPost(db: any, schema: any, reviewId: string, nowIso: string): { ticked: number; unticked: number } {
+  const rows = db.select().from(schema.findings).where(eq(schema.findings.reviewId, reviewId)).all() as any[]
+  const tick = rows.filter(isUnattendedAutomatable).map((f) => f.id)
+  const untick = rows
+    .filter((f) => f.checked && (f.checkedBy === 'auto' || f.checkedBy === 'engine') && (f.tier != null || f.source != null) && !isUnattendedAutomatable(f))
+    .map((f) => f.id)
+  if (tick.length) {
+    db.update(schema.findings)
+      .set({ checked: true, checkedBy: sql`CASE WHEN ${schema.findings.checked} = 1 AND ${schema.findings.checkedBy} IS NOT NULL THEN ${schema.findings.checkedBy} ELSE 'engine' END`, checkedAt: nowIso })
+      .where(inArray(schema.findings.id, tick)).run()
+  }
+  if (untick.length) {
+    db.update(schema.findings).set({ checked: false, checkedBy: 'engine', checkedAt: nowIso }).where(inArray(schema.findings.id, untick)).run()
+  }
+  return { ticked: tick.length, unticked: untick.length }
 }

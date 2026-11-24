@@ -11,7 +11,7 @@ import { isRunBusy } from '~core/runs/session'
 import { fixChangesDiff, fixChangesStat, hasUploadable } from '~core/fix/changes'
 import { genCommitMessage } from '~core/fix/commitmsg'
 import { assertCodexAheadCommitSafe, assertCodexCommitSafe } from '~core/fix/codexCommitSafety'
-import { lastVerifyResult, runVerifyCommand } from '~core/fix/verify'
+import { checkBeforeUpload, lastVerifyResult } from '~core/fix/verify'
 import { getRunOr404 } from '../../../utils/runContext'
 
 const pexec = promisify(execFile)
@@ -63,7 +63,7 @@ export default defineEventHandler(async (event) => {
     const { merging, msg: mergeMsg } = await mergeState()
     const genMsg = !dirty ? '' : merging ? (mergeMsg || `Merge into ${branch}`) : await genCommitMessage(helperTargetOf(resolveReviewConfig(d, project)), diff, wt)
     const verifyCommand = project.verifyCommand?.trim() || null
-    return { dryRun: true, diff, truncated, message: genMsg, needsCommit: dirty, isMerge: merging, verifyCommand, verify: verifyCommand ? lastVerifyResult(d, schema, wt) : null, ...stat }
+    return { dryRun: true, diff, truncated, message: genMsg, needsCommit: dirty, isMerge: merging, verifyCommand, verify: verifyCommand ? lastVerifyResult(d, schema, wt, run.createdAt) : null, ...stat }
   }
 
   // CAS-claim the worktree: busy_action = pushing.
@@ -73,13 +73,8 @@ export default defineEventHandler(async (event) => {
 
   const verifyCommand = project.verifyCommand?.trim()
   if (verifyCommand && !skipVerify) {
-    const v = await runVerifyCommand(d, schema, { command: verifyCommand, cwd: wt, provider: run.provider === 'codex' ? 'codex' : 'claude', projectId: project.id, prNumber: run.prNumber ?? null, branch })
-      .catch((e: any) => ({ ok: false, exitCode: null, timedOut: false, tail: String(e?.message || e), command: verifyCommand }))
-    if (!v.ok) {
-      // The worktree stays as it was (still uploadable); nothing is committed or pushed.
-      d.update(schema.runs).set({ busyAction: null, updatedAt: now() }).where(eq(schema.runs.id, id)).run()
-      throw createError({ statusCode: 422, statusMessage: v.timedOut ? '上传前检查超时，未上传' : `上传前检查失败（exit ${v.exitCode ?? '?'}），未上传`, data: { verifyFailed: true, exitCode: v.exitCode, timedOut: v.timedOut, tail: v.tail } })
-    }
+    const fail = await checkBeforeUpload(d, schema, { runId: id, command: verifyCommand, cwd: wt, provider: run.provider === 'codex' ? 'codex' : 'claude', projectId: project.id, prNumber: run.prNumber ?? null, branch })
+    if (fail) throw createError(fail)
   }
 
   try {

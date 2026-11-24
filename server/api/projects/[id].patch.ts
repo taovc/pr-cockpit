@@ -16,7 +16,7 @@ const Body = z.object({
   autoCooldownMinutes: z.number().int().min(0).max(120).optional(), // automation cooldown (minutes, 0 = no cooldown)
   verifyBeforePost: z.boolean().optional(), // second read-only pass that tries to refute each finding of a fresh review
   reviewEngineLevel: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional(), // /code-review level of the review engine (Claude)
-  verifyCommand: z.string().max(2000).nullable().optional().transform((v) => (typeof v === 'string' ? v.trim() || null : v)), // run in the PR worktree before an automatic upload
+  verifyCommand: z.string().max(2000).nullable().optional().transform((v) => (typeof v === 'string' ? v.trim() || null : v)), // run in the PR worktree before an upload (automatic or manual)
 })
 
 export default defineEventHandler(async (event) => {

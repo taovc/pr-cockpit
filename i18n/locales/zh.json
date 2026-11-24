@@ -394,7 +394,7 @@
     "verifyBeforePost": "发前验证",
     "verifyBeforePostHint": "首次审核后再跑一遍只读反驳；被反驳的 finding 保留可见但不勾选。",
     "verifyCommand": "上传前检查命令",
-    "verifyCommandHint": "在 PR 的 worktree 里于上传前运行（自动上传和手动上传都会跑），失败就不上传。只用这里的设置，从不读 PR 分支里的配置。留空=不检查。",
+    "verifyCommandHint": "在 PR 的 worktree 里于上传前运行（自动上传和手动上传都会跑），失败就不上传。只用这里的设置，从不读 PR 分支里的配置。检查改动了文件也算失败。运行时带 CI=1，去掉凭据类环境变量，但仍能联网，跑的也是 PR 自己的脚本：它能拦下失误，拦不住恶意改动。留空=不检查。",
     "verifyCommandPlaceholder": "例如 pnpm typecheck && pnpm test",
     "autoCooldown": "自动化冷却期(分钟)",
     "autoCooldownHint": "新提交后等待再动手，0=不冷却"

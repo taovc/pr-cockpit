@@ -394,7 +394,7 @@
     "verifyBeforePost": "Vérifier avant publication",
     "verifyBeforePostHint": "Après une revue, une seconde passe en lecture seule tente de réfuter chaque finding ; les réfutés restent visibles mais décochés.",
     "verifyCommand": "Vérification avant envoi",
-    "verifyCommandHint": "S'exécute dans le worktree de la PR avant un envoi (automatique ou manuel) ; un échec le bloque. Seul ce réglage compte, jamais rien lu depuis la branche de la PR. Vide = aucune vérification.",
+    "verifyCommandHint": "S'exécute dans le worktree de la PR avant un envoi (automatique ou manuel) ; un échec le bloque. Seul ce réglage compte, jamais rien lu depuis la branche de la PR. Une vérification qui modifie des fichiers échoue aussi. Elle tourne avec CI=1 et sans variables d'environnement d'identifiants, mais avec le réseau et les scripts de la PR : elle attrape les erreurs, pas une modification malveillante. Vide = aucune vérification.",
     "verifyCommandPlaceholder": "ex. pnpm typecheck && pnpm test",
     "autoCooldown": "Délai d'automatisation (min)",
     "autoCooldownHint": "Délai après un nouveau commit, 0 = off"
