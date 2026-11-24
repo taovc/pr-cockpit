@@ -15,7 +15,7 @@ import { reviewAborts } from './agent/reviewAborts'
 import { failedJobUsage, usageOfError } from './agent/claudeRun'
 import { projectDirNameFor } from './host/options'
 import { mergeUsage } from './agent/usage'
-import { classifyFindings, runScopeReview, withFailedStages, type FailedStage, type StageRunner } from './review/scope'
+import { classifyFindings, runScopeReview, scopeEffort, withFailedStages, type FailedStage, type StageRunner } from './review/scope'
 import type { FindingRow, RawFinding } from './review/assemble'
 import { contextDocPath } from './review/context'
 import { existsSync } from 'node:fs'
@@ -102,7 +102,7 @@ function stageRunner(ctx: ReviewJobCtx, review: any, workspacePath: string, abor
   return async (subkind, fn) => {
     const sid = createRun(db, schema, {
       kind: 'review', subkind, provider: 'claude', projectId: ctx.projectId ?? review?.projectId ?? null, reviewId, workspaceType: 'pr_worktree', workspacePath,
-      prNumber: ctx.prNumber, branch: ctx.branch, model: ctx.model, effort: ctx.effort, lang: ctx.lang ?? null, title: review?.title ?? null,
+      prNumber: ctx.prNumber, branch: ctx.branch, model: ctx.model, effort: scopeEffort(ctx.effort), lang: ctx.lang ?? null, title: review?.title ?? null,
     })
     try {
       const r = await fn()

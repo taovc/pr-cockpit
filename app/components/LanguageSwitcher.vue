@@ -10,7 +10,7 @@ type I18nWithLocales = ReturnType<typeof useI18n> & {
 }
 
 // Three-language switcher; the preference is persisted by @nuxtjs/i18n's cookie (mr-locale)
-const { locale, locales, setLocale, t } = useI18n() as I18nWithLocales
+const { locale, locales, setLocale, t } = useI18n() as unknown as I18nWithLocales
 
 // Build the dropdown items from the configured locales, with a check mark on the current language
 const items = computed<DropdownMenuItem[]>(() =>

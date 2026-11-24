@@ -15,15 +15,25 @@ export function usageFromClaudeResult(msg: any, fallbackModel?: string, cliVersi
   const models: ModelUsageSnapshot[] = []
   const mu = msg.modelUsage
   if (mu && typeof mu === 'object') {
-    for (const [model, u] of Object.entries<any>(mu)) {
+    for (const [key, u] of Object.entries<any>(mu)) {
+      const model = typeof u?.canonicalModel === 'string' && u.canonicalModel ? u.canonicalModel : key.replace(/\[1m\]$/i, '')
+      const cost = typeof u?.costUSD === 'number' ? u.costUSD : null
+      // Two keys can name the same model ("x" and "x[1m]"); one row each, so per-model differencing stays aligned.
+      const same = models.find((m) => m.model === model)
+      if (same) {
+        same.inputTokens += num(u?.inputTokens); same.outputTokens += num(u?.outputTokens)
+        same.cacheReadTokens += num(u?.cacheReadInputTokens); same.cacheCreateTokens += num(u?.cacheCreationInputTokens)
+        if (cost != null) { same.costUsd = (same.costUsd ?? 0) + cost; same.costSource = 'reported' }
+        continue
+      }
       models.push({
         model,
         inputTokens: num(u?.inputTokens),
         outputTokens: num(u?.outputTokens),
         cacheReadTokens: num(u?.cacheReadInputTokens),
         cacheCreateTokens: num(u?.cacheCreationInputTokens),
-        costUsd: typeof u?.costUSD === 'number' ? u.costUSD : null,
-        costSource: typeof u?.costUSD === 'number' ? 'reported' : null,
+        costUsd: cost,
+        costSource: cost != null ? 'reported' : null,
       })
     }
   } else if (msg.usage && typeof msg.usage === 'object') {
@@ -106,5 +116,6 @@ export function mergeUsage(parts: Array<ProviderUsage | null | undefined>): Prov
     numTurns: list.reduce((a, p) => a + (p.numTurns ?? 0), 0) || undefined,
     sessionId: list[list.length - 1]!.sessionId ?? null,
     ...(list.find((p) => p.cliVersion)?.cliVersion ? { cliVersion: list.find((p) => p.cliVersion)!.cliVersion } : {}),
+    ...(list.find((p) => p.modelActual)?.modelActual ? { modelActual: list.find((p) => p.modelActual)!.modelActual } : {}),
   }
 }

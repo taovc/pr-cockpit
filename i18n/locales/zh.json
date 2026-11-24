@@ -319,7 +319,7 @@
     "useEnvDefault": "用 .env 里的默认模型",
     "inheritEnvDefault": "继承 .env 默认",
     "effortLabel": "审核力度 (effort)",
-    "effortNone": "（不设，用模型默认）",
+    "effortNone": "（不设：用模型自身默认，Claude 5.x 模型是 medium；Claude 审核各阶段用 high）",
     "noEffortSupport": "该模型不支持 effort 设置",
     "refreshCodexModels": "刷新模型目录",
     "refreshingCodexModels": "刷新中…",

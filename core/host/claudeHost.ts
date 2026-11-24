@@ -152,7 +152,7 @@ class ClaudeHost {
         live.init = e
         if (e.sessionId) {
           try { live.turn?.cb.onSessionId?.(e.sessionId) } catch { /* ignore */ }
-          if (live.spec.db && live.spec.schema) setRunStatus(live.spec.db, live.spec.schema, live.spec.runId, live.busy ? 'running' : 'idle', { claudeSessionId: e.sessionId, permissionMode: e.permissionMode })
+          if (live.spec.db && live.spec.schema) setRunStatus(live.spec.db, live.spec.schema, live.spec.runId, live.busy ? 'running' : 'idle', { claudeSessionId: e.sessionId, permissionMode: e.permissionMode, ...(e.model ? { modelActual: e.model } : {}) })
         }
         break
       case 'text_delta':
