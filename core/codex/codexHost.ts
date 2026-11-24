@@ -81,6 +81,19 @@ async function effortFor(spec: RunSpec): Promise<string | undefined> {
   return toCodexEffort(spec.effort)
 }
 
+// `mcp_servers: {}` merges into the loaded config instead of replacing it, so every configured server (user and
+// project layers) is switched off by name; apps and computer / browser use are features, not config servers.
+async function mcpOffConfig(server: CodexServer, cwd: string): Promise<Record<string, unknown>> {
+  const res: any = await server.rpc.request('config/read', { cwd, includeLayers: false }, 10_000).catch((e) => {
+    throw new Error(`could not read the Codex config to switch its MCP servers off: ${(e as Error).message}`)
+  })
+  const names = Object.keys(res?.config?.mcp_servers ?? {})
+  return {
+    mcp_servers: Object.fromEntries(names.map((n) => [n, { enabled: false }])),
+    features: { apps: false, computer_use: false, browser_use: false },
+  }
+}
+
 function summarizeInput(input: unknown): string {
   const i = (input ?? {}) as Record<string, unknown>
   const v = i.command ?? i.file_path ?? i.path ?? i.query ?? i.description ?? ''
@@ -115,6 +128,7 @@ class CodexHost implements SessionHost {
     const policy = policyFor(spec)
     const unattended = spec.kind === 'review' || spec.kind === 'helper' // read-only kinds never connect MCP
     const effort = await effortFor(spec)
+    const mcpOff = unattended ? await mcpOffConfig(server, spec.cwd) : null
     const instructions = developerInstructions(spec)
     const base: Partial<ThreadStartParams> = {
       cwd: spec.cwd,
@@ -122,7 +136,7 @@ class CodexHost implements SessionHost {
       ...(spec.codexServiceTier ? { serviceTier: spec.codexServiceTier } : {}),
       approvalPolicy: policy.approval,
       sandbox: policy.sandboxMode,
-      ...(effort || unattended ? { config: { ...(effort ? { model_reasoning_effort: effort } : {}), ...(unattended ? { mcp_servers: {} } : {}) } } : {}),
+      ...(effort || mcpOff ? { config: { ...(effort ? { model_reasoning_effort: effort } : {}), ...(mcpOff ?? {}) } } : {}),
       ...(instructions ? { developerInstructions: instructions } : {}),
     }
     const notes: string[] = []
@@ -294,6 +308,19 @@ class CodexHost implements SessionHost {
 
     if (method === 'item/commandExecution/requestApproval' || method === 'execCommandApproval') {
       const command = Array.isArray(params.command) ? params.command.map(String).join(' ') : typeof params.command === 'string' ? params.command : ''
+      const approvalKind = typeof params.kind === 'string' ? params.kind : 'command'
+      // Input to an already running terminal: the request carries no input text, so nobody can judge what gets written.
+      if (approvalKind !== 'command' && approvalKind !== 'humanCommand') {
+        rpc.respond(id, { decision: decline })
+        live.emit({ t: 'permission_denied', toolName: 'Bash', message: `declined: ${approvalKind} into the running terminal \`${command.slice(0, 200)}\` (Codex does not show the input)` })
+        return
+      }
+      const humanOnly = approvalKind === 'humanCommand'
+      if (humanOnly && auto) {
+        rpc.respond(id, { decision: decline })
+        live.emit({ t: 'permission_denied', toolName: 'Bash', message: `declined: a command reserved for a person in an unattended run: ${command.slice(0, 200)}` })
+        return
+      }
       if (!command && auto) { rpc.respond(id, { decision: decline }); live.emit({ t: 'permission_denied', toolName: 'Bash', message: 'declined: approval request without a readable command' }); return }
       if (auto) {
         const d = auto(command)
@@ -301,10 +328,11 @@ class CodexHost implements SessionHost {
         if (d === 'decline') live.emit({ t: 'permission_denied', toolName: 'Bash', message: `declined before execution by the read-only policy: ${command.slice(0, 200)}` })
         return
       }
-      const amendment = Array.isArray(params.proposedExecpolicyAmendment) ? params.proposedExecpolicyAmendment as string[] : null
+      // A humanCommand takes a one-time decision only.
+      const amendment = !humanOnly && Array.isArray(params.proposedExecpolicyAmendment) ? params.proposedExecpolicyAmendment as string[] : null
       this.park(live, id, method, 'tool', 'Bash', { command, cwd: params.cwd ?? undefined, ...(params.reason ? { description: String(params.reason) } : {}) }, amendment ? { amendment } : {}, (r) => {
         if (r.behavior !== 'allow') return { decision: decline }
-        const forSession = r.decisionClassification === 'user_permanent'
+        const forSession = !humanOnly && r.decisionClassification === 'user_permanent'
         if (forSession && amendment && !legacy) return { decision: { acceptWithExecpolicyAmendment: { execpolicy_amendment: amendment } } }
         return { decision: accept(forSession) }
       }, params.reason ? String(params.reason) : undefined)

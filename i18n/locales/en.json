@@ -317,6 +317,7 @@
     "codexModelFieldHint": "Leave empty to use CODEX_MODEL or the Codex SDK default model.",
     "codexModelRetired": "not in the current list",
     "codexModelRetiredHint": "Codex no longer lists this model. Pick another one and save.",
+    "codexModelCatalogUnavailable": "The Codex model catalog is unavailable right now. The saved model is kept.",
     "codexModelUpgrade": "Codex suggests switching to {model}",
     "codexModelRetiresAt": "retires on {date}",
     "globalDefault": "Global default",

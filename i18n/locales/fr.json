@@ -317,6 +317,7 @@
     "codexModelFieldHint": "Laissez vide pour utiliser CODEX_MODEL ou le modèle par défaut du SDK Codex.",
     "codexModelRetired": "absent de la liste actuelle",
     "codexModelRetiredHint": "Codex ne liste plus ce modèle. Choisissez-en un autre puis enregistrez.",
+    "codexModelCatalogUnavailable": "Le catalogue de modèles Codex est indisponible pour le moment. Le modèle enregistré est conservé.",
     "codexModelUpgrade": "Codex suggère de passer à {model}",
     "codexModelRetiresAt": "retrait le {date}",
     "globalDefault": "Défaut global",

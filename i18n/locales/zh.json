@@ -317,6 +317,7 @@
     "codexModelFieldHint": "留空时使用 CODEX_MODEL 或 Codex SDK 默认模型。",
     "codexModelRetired": "不在当前列表",
     "codexModelRetiredHint": "Codex 模型目录里已没有这个模型，换一个再保存。",
+    "codexModelCatalogUnavailable": "Codex 模型目录暂时读不到，保留已保存的模型。",
     "codexModelUpgrade": "Codex 建议换到 {model}",
     "codexModelRetiresAt": "{date} 停用",
     "globalDefault": "全局默认",

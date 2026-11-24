@@ -64,6 +64,8 @@ const retiredCodexModel = computed<ModelCap | null>(() => {
   const saved = props.project.model || ''
   if ((props.project as Project & { provider?: Provider }).provider !== 'codex' || !saved || !caps.value?.codexModels) return null
   if (findCodexModel(caps.value.codexModels, saved)) return null
+  // An empty list means the catalog could not be read, not that the model is gone.
+  if (!caps.value.codexModels.length) return { value: saved, displayName: saved, description: t('config.codexModelCatalogUnavailable'), supportsEffort: false, effortLevels: [] }
   const hidden = findCodexModel(caps.value.codexHiddenModels ?? [], saved)
   return hidden
     ? { ...hidden, retired: true }
