@@ -1,8 +1,8 @@
 // Shared shapes for agent-run observability (phase 0 of the session-host rework).
 // A "run" is one agent execution we can attribute cost / tokens / model / skill version to.
 
-export type RunKind = 'review' | 'session'
-export type RunSubkind = 'review' | 'guided' | 'recheck' | 'skillgen' | 'session' | 'helper' | 'eval' | 'verify' | ReviewStage
+export type RunKind = 'review' | 'session' | 'check' // check = a deterministic command, not an agent
+export type RunSubkind = 'review' | 'guided' | 'recheck' | 'skillgen' | 'session' | 'helper' | 'eval' | 'verify' | 'upload_check' | ReviewStage
 // The scope-review pipeline's stages. Their rows only break a review down; the review's own row carries the total.
 export const REVIEW_STAGES = ['engine', 'context', 'check', 'tier'] as const
 export type ReviewStage = (typeof REVIEW_STAGES)[number]

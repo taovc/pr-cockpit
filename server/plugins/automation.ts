@@ -4,7 +4,7 @@ import { listPulls, getCurrentUserLogin } from '~core/github/gh'
 import { isRunBusy } from '~core/runs/session'
 import { runAutomationTick, type EngineDeps } from '~core/automation/engine'
 import { buildAutoFixMessage } from '~core/automation/fixprompt'
-import { isAutomatable } from '~core/automation/findings'
+import { isUnattendedAutomatable } from '~core/automation/findings'
 import { resolveLang } from '~core/agent/lang'
 
 // The resident PR automation engine: the only server-side timed loop (a Nitro plugin like recover.ts,
@@ -52,8 +52,8 @@ export default defineNitroPlugin((nitroApp) => {
     // post again every round and loop forever on the same 400. Other errors (network/422) are propagated as before,
     // so the engine logs them and retries next round.
     dispatchPost: async (reviewId) => {
-      // Tick what automation may post (isAutomatable), but never overwrite a human's own decision provenance.
-      const ids = (d.select().from(schema.findings).where(eq(schema.findings.reviewId, reviewId)).all() as any[]).filter(isAutomatable).map((f) => f.id)
+      // Tick what automation may post unattended, but never overwrite a human's own decision provenance.
+      const ids = (d.select().from(schema.findings).where(eq(schema.findings.reviewId, reviewId)).all() as any[]).filter(isUnattendedAutomatable).map((f) => f.id)
       if (ids.length) {
         d.update(schema.findings)
           .set({ checked: true, checkedBy: sql`CASE WHEN ${schema.findings.checked} = 1 AND ${schema.findings.checkedBy} IS NOT NULL THEN ${schema.findings.checkedBy} ELSE 'engine' END`, checkedAt: now() })
@@ -90,9 +90,14 @@ export default defineNitroPlugin((nitroApp) => {
       // Unattended: the danger guard stays on and the session runs in its default mode.
       await $fetch(`/api/runs/${created.id}/messages`, { method: 'POST', headers: cookieHeader, body: { message, allowDanger: false } })
     },
-    // Upload the fix (commit + push, reusing all of the push endpoint's safety checks)
+    // Upload the fix (commit + push, reusing all of the push endpoint's safety checks; the project's verify command runs first)
     dispatchPush: async (fixId) => {
-      await $fetch(`/api/runs/${fixId}/push`, { method: 'POST', headers: cookieHeader, body: { dryRun: false } })
+      try {
+        await $fetch(`/api/runs/${fixId}/push`, { method: 'POST', headers: cookieHeader, body: { dryRun: false } })
+      } catch (e: any) {
+        if (e?.data?.data?.verifyFailed) return { verifyFailed: true as const, tail: String(e.data.data.tail ?? e.data.statusMessage ?? '') }
+        throw e
+      }
     },
   }
 

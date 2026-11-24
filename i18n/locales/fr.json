@@ -393,6 +393,9 @@
     "engineLevelHint": "Niveau du /code-review intégré : plus haut, plus approfondi et plus lent. Par défaut high.",
     "verifyBeforePost": "Vérifier avant publication",
     "verifyBeforePostHint": "Après une revue, une seconde passe en lecture seule tente de réfuter chaque finding ; les réfutés restent visibles mais décochés.",
+    "verifyCommand": "Vérification avant envoi",
+    "verifyCommandHint": "S'exécute dans le worktree de la PR avant un envoi (automatique ou manuel) ; un échec le bloque. Seul ce réglage compte, jamais rien lu depuis la branche de la PR. Vide = aucune vérification.",
+    "verifyCommandPlaceholder": "ex. pnpm typecheck && pnpm test",
     "autoCooldown": "Délai d'automatisation (min)",
     "autoCooldownHint": "Délai après un nouveau commit, 0 = off"
   },
@@ -552,6 +555,11 @@
     "commitMsgLabel": "Message de commit",
     "commitMsgPlaceholder": "Message de commit (modifiable)",
     "rePushHint": "Les changements sont déjà validés — renvoi vers le distant.",
+    "verifyWillRun": "La vérification s'exécute avant l'envoi : {cmd}",
+    "verifyLastOk": "Dernière vérification réussie ({at})",
+    "verifyLastFailed": "Dernière vérification échouée ({at})",
+    "verifyFailed": "Échec de la vérification avant envoi — rien n'a été envoyé",
+    "uploadAnyway": "Envoyer quand même",
     "viewChanges": "Voir les changements",
     "you": "Vous",
     "chatPlaceholder": "Continuez / demandez d'autres changements (ex. réécris F3 ; vérif. de null manquante ici…)",
@@ -699,6 +707,7 @@
       "deleted": "Désactivé (tâche supprimée)",
       "post_error": "Échec de publication — arrêté",
       "push_error": "Échec du push — arrêté",
+      "verify_failed": "Vérification échouée — arrêté",
       "fix_unverified": "Corrigé — à re-vérifier"
     },
     "tab": "Automatisation",
@@ -715,6 +724,7 @@
       "fix_error": "Échec de la correction — à vous",
       "post_error": "Échec de publication : {info}",
       "push_error": "Échec du push : {info}",
+      "verify_failed": "Échec de la vérification avant envoi, rien poussé : {info}",
       "fix_unverified": "Corrigé — re-revue manuelle requise (mode once)",
       "cooldown": "En attente — démarre dans {info} min"
     },

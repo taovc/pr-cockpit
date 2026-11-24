@@ -393,6 +393,9 @@
     "engineLevelHint": "Level of the bundled /code-review finder: higher looks deeper and takes longer. Default high.",
     "verifyBeforePost": "Verify before post",
     "verifyBeforePostHint": "After a fresh review, a second read-only pass tries to refute each finding; refuted ones stay visible but unchecked.",
+    "verifyCommand": "Pre-upload check",
+    "verifyCommandHint": "Runs in the PR worktree before an upload (automatic or yours); a failure blocks it. Only this setting is used, never anything read from the PR branch. Empty = no check.",
+    "verifyCommandPlaceholder": "e.g. pnpm typecheck && pnpm test",
     "autoCooldown": "Automation cooldown (min)",
     "autoCooldownHint": "Delay after a new commit, 0 = off"
   },
@@ -552,6 +555,11 @@
     "commitMsgLabel": "Commit message",
     "commitMsgPlaceholder": "Commit message (editable)",
     "rePushHint": "Changes are already committed — re-pushing to the remote.",
+    "verifyWillRun": "The check runs before the upload: {cmd}",
+    "verifyLastOk": "Last check passed ({at})",
+    "verifyLastFailed": "Last check failed ({at})",
+    "verifyFailed": "Pre-upload check failed — nothing uploaded",
+    "uploadAnyway": "Upload anyway",
     "viewChanges": "View changes",
     "you": "You",
     "chatPlaceholder": "Keep chatting / ask the AI to change more (e.g. rewrite F3; missing null check here…)",
@@ -699,6 +707,7 @@
       "deleted": "Off (task deleted)",
       "post_error": "Post failed — stopped",
       "push_error": "Push failed — stopped",
+      "verify_failed": "Check failed — stopped",
       "fix_unverified": "Fixed — needs re-review"
     },
     "tab": "Workflow",
@@ -715,6 +724,7 @@
       "fix_error": "Fix failed — needs you",
       "post_error": "Post failed: {info}",
       "push_error": "Push failed: {info}",
+      "verify_failed": "Pre-upload check failed, nothing pushed: {info}",
       "fix_unverified": "Fixed — needs manual re-review (once mode)",
       "cooldown": "Cooling down — starts in {info} min"
     },

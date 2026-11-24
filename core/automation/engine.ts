@@ -35,7 +35,8 @@ export type EngineDeps = {
   // posting failed → {posted:false,error} (already contained, no retry)
   dispatchPost(reviewId: string): Promise<{ posted: boolean; error?: string }>
   dispatchFix(projectId: string, prNumber: number, reviewId: string): Promise<void>
-  dispatchPush(fixId: string): Promise<void>
+  // verifyFailed = the project's verify command failed before the upload (nothing pushed); other failures throw
+  dispatchPush(fixId: string): Promise<void | { verifyFailed: true; tail: string }>
   now(): string
   currentUser?: string | null // currently logged-in gh user (default for the auto-fix author allowlist)
   log?(msg: string): void
@@ -195,7 +196,14 @@ async function evaluatePr(db: any, schema: any, deps: EngineDeps, project: any, 
       case 'push':
         if (fix) {
           try {
-            await deps.dispatchPush(fix.id)
+            const r = await deps.dispatchPush(fix.id)
+            if (r?.verifyFailed) {
+              // The repo's own check failed: stop this PR's automation without pushing and without a new fix turn
+              // (feeding the failure back would loop fix → verify → fix).
+              upsertPrAutomation(db, schema, project.id, p.number, { reviewOn: false, fixOn: false, pendingFix: false, note: 'verify_failed' }, deps.now())
+              rec('verify_failed', r.tail.slice(-4000))
+              break
+            }
             // push succeeded → clear pendingFix (the head changed, so the next round's every_push
             // triggers a recheck)
             upsertPrAutomation(db, schema, project.id, p.number, { pendingFix: false }, deps.now())

@@ -1,8 +1,8 @@
 import { eq, asc, inArray } from 'drizzle-orm'
 import { isRecheckResolved } from '../recheckAxes'
-import { isAutomatable } from './automatable'
+import { isAutomatable, isUnattendedAutomatable } from './automatable'
 
-export { isAutomatable }
+export { isAutomatable, isUnattendedAutomatable }
 
 // Single definition of an "outstanding finding": severity is High/Medium (we don't chase Low/nit) and it is not yet resolved.
 // Resolved = we retracted it, or the author fixed/replied to it — decided by isRecheckResolved, which reads both axes.
@@ -16,7 +16,7 @@ const ACTIONABLE_SEVERITY = new Set(['High', 'Medium'])
 
 
 export type ReviewFindingStats = {
-  total: number // findings automation may post (0 = nothing to post)
+  total: number // findings automation may post unattended (0 = nothing to post)
   actionable: number // how many still need handling
   actionableFindings: any[] // the finding rows still needing handling (by sortOrder, for buildAutoFixMessage)
 }
@@ -41,10 +41,10 @@ export function reviewFindingStats(db: any, schema: any, reviewId: string): Revi
   }
 
   const actionableFindings = findings.filter((f) => {
-    if (!isAutomatable(f)) return false
+    if (!isUnattendedAutomatable(f)) return false
     if (f.tier == null && !ACTIONABLE_SEVERITY.has(f.severity)) return false
     const rc = latest.get(f.id)
     return !rc || !isRecheckResolved(rc) // never rechecked, or the latest round left it open → still to fix
   })
-  return { total: findings.filter(isAutomatable).length, actionable: actionableFindings.length, actionableFindings }
+  return { total: findings.filter(isUnattendedAutomatable).length, actionable: actionableFindings.length, actionableFindings }
 }

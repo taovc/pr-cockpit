@@ -23,6 +23,7 @@ export const projects = sqliteTable('projects', {
   // Verify-before-post: after a fresh review, a second read-only pass tries to refute every finding (core/agent/verify.ts).
   verifyBeforePost: integer('verify_before_post', { mode: 'boolean' }).notNull().default(false),
   reviewEngineLevel: text('review_engine_level').notNull().default('high'), // /code-review level of the scope-review engine
+  verifyCommand: text('verify_command'), // shell command run in the PR worktree before an automatic upload; set by the human only
   defaultBranch: text('default_branch').notNull().default('dev'),
   createdAt: text('created_at').notNull(),
 })
@@ -430,8 +431,8 @@ export const prAutomation = sqliteTable('pr_automation', {
 // session unification keeps the same ids). Cost and token totals are accumulated from run_usage.
 export const runs = sqliteTable('runs', {
   id: text('id').primaryKey(),
-  kind: text('kind', { enum: ['review', 'session'] }).notNull(),
-  subkind: text('subkind', { enum: ['review', 'guided', 'recheck', 'skillgen', 'session', 'helper', 'eval', 'verify', 'engine', 'context', 'check', 'tier'] }).notNull(),
+  kind: text('kind', { enum: ['review', 'session', 'check'] }).notNull(),
+  subkind: text('subkind', { enum: ['review', 'guided', 'recheck', 'skillgen', 'session', 'helper', 'eval', 'verify', 'upload_check', 'engine', 'context', 'check', 'tier'] }).notNull(),
   projectId: text('project_id'), // no FK: a run record must survive project deletion for the dashboard
   reviewId: text('review_id'),
   workspaceType: text('workspace_type', { enum: ['pr_worktree', 'branch_worktree', 'cwd'] }),

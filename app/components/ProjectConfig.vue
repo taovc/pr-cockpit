@@ -32,6 +32,7 @@ const form = reactive({
   verifyBeforePost: !!(props.project as Project & { verifyBeforePost?: boolean }).verifyBeforePost,
   reviewEngineLevel: (props.project as Project & { reviewEngineLevel?: string }).reviewEngineLevel || 'high',
   autoCooldownMinutes: (props.project as Project & { autoCooldownMinutes?: number }).autoCooldownMinutes ?? 5,
+  verifyCommand: (props.project as Project & { verifyCommand?: string | null }).verifyCommand || '',
 })
 const savingInfo = ref(false)
 const msg = ref('')
@@ -111,6 +112,7 @@ async function saveInfo() {
         verifyBeforePost: !!form.verifyBeforePost,
         reviewEngineLevel: form.reviewEngineLevel,
         autoCooldownMinutes: Math.min(120, Math.max(0, Number(form.autoCooldownMinutes) ?? 5)),
+        verifyCommand: form.verifyCommand.trim() || null,
       },
     })
     msg.value = t('config.saved'); emit('changed')
@@ -385,6 +387,15 @@ function codexAuthClass(status: CodexSdkStatus | null) {
           <input
             v-model.number="form.autoCooldownMinutes" type="number" min="0" max="120"
             class="w-16 text-sm border-b border-default py-1 bg-transparent outline-none focus:border-inverted mt-2"
+          />
+        </div>
+        <!-- Pre-upload check: a shell command run in the PR worktree before an upload -->
+        <div class="flex flex-col basis-full">
+          <div class="text-[10px] uppercase tracking-[0.15em] text-dimmed">{{ $t('config.verifyCommand') }}</div>
+          <p class="text-xs text-dimmed mt-1">{{ $t('config.verifyCommandHint') }}</p>
+          <input
+            v-model="form.verifyCommand" type="text" maxlength="2000" :placeholder="$t('config.verifyCommandPlaceholder')"
+            class="w-full text-sm font-mono border-b border-default py-1 bg-transparent outline-none focus:border-inverted mt-2"
           />
         </div>
       </div>
