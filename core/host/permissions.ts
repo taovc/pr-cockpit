@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid'
 import { eq } from 'drizzle-orm'
 import type { CanUseTool, HookCallback, PermissionResult, PermissionUpdate } from '@anthropic-ai/claude-agent-sdk'
-import { classifyGithubCommand } from '../agent/commandGuard'
+import { classifyGithubCommand, classifyMcpToolCall } from '../agent/commandGuard'
 import { isDangerousCommand } from '../agent/dangerGuard'
 import type { PromptAnswer, PromptKind, RunEvent, RunSpec } from './types'
 
@@ -127,13 +127,17 @@ export function answerPending(prompts: Map<string, PendingPrompt>, store: Prompt
 
 // PreToolUse hook: dangerous Bash commands (push / rm -rf / sudo / gh pr create / GitHub writes …) become a permission
 // card in EVERY permission mode (hooks run before the mode decides), unless the run's allowDanger switch is on.
-// Approving or merging a PR is denied outright in worktree sessions (fix / feature scope), whatever the switch says.
-// Both are read live so a toggle mid-session takes effect on the next command.
+// Approving or merging a PR (a Bash command or an MCP tool) is denied outright in worktree sessions (fix / feature
+// scope), whatever the switch says. Both are read live so a toggle mid-session takes effect on the next command.
 export function makeDangerHook(isAllowed: () => boolean, scopeOf: () => RunSpec['guardScope'] = () => undefined): HookCallback {
   return async (input) => {
-    if ((input as any).hook_event_name !== 'PreToolUse' || (input as any).tool_name !== 'Bash') return {}
-    const cmd = String(((input as any).tool_input as any)?.command ?? '')
-    const gh = classifyGithubCommand(cmd)
+    if ((input as any).hook_event_name !== 'PreToolUse') return {}
+    const toolName = String((input as any).tool_name ?? '')
+    const mcp = toolName.startsWith('mcp__')
+    if (toolName !== 'Bash' && !mcp) return {}
+    const cmd = mcp ? toolName : String(((input as any).tool_input as any)?.command ?? '')
+    const gh = mcp ? classifyMcpToolCall(toolName, (input as any).tool_input) : classifyGithubCommand(cmd)
+    if (mcp && !gh) return {}
     const scope = scopeOf()
     if (gh === 'approve-merge' && (scope === 'fix' || scope === 'feature')) {
       return {

@@ -18,6 +18,9 @@ export type CodexPolicy = {
   approval: ApprovalPolicy
   // Unattended kinds answer approval requests themselves; null = a human answers through the permission bridge.
   autoDecide: ((command: string) => AutoDecision) | null
+  // Worktree sessions with full access: every command is submitted (`untrusted`) only so the host can decline a PR
+  // approval / merge before it runs; everything else is accepted without a card.
+  screenOnly: boolean
   ephemeral: boolean
 }
 
@@ -29,13 +32,13 @@ export function sandboxModeOf(s: SandboxPolicy): SandboxMode {
 // (`untrusted`) so git/GitHub mutations are declined before they run instead of detected afterwards.
 export function reviewPolicy(o: { allowNetwork: boolean }): CodexPolicy {
   const sandbox: SandboxPolicy = { type: 'readOnly', networkAccess: o.allowNetwork }
-  return { sandbox, sandboxMode: sandboxModeOf(sandbox), approval: 'untrusted', autoDecide: (cmd) => (isForbiddenRemoteOrGitMutation(cmd) ? 'decline' : 'accept'), ephemeral: true }
+  return { sandbox, sandboxMode: sandboxModeOf(sandbox), approval: 'untrusted', autoDecide: (cmd) => (isForbiddenRemoteOrGitMutation(cmd) ? 'decline' : 'accept'), screenOnly: false, ephemeral: true }
 }
 
 // One-shot helpers (commit message, title, comment rewrite): read-only, no network, nothing to approve.
 export function helperPolicy(): CodexPolicy {
   const sandbox: SandboxPolicy = { type: 'readOnly', networkAccess: false }
-  return { sandbox, sandboxMode: 'read-only', approval: 'never', autoDecide: () => 'decline', ephemeral: true }
+  return { sandbox, sandboxMode: 'read-only', approval: 'never', autoDecide: () => 'decline', screenOnly: false, ephemeral: true }
 }
 
 // Interactive sessions. The permission mode maps onto Codex's approval policy; the danger switch opens the sandbox
@@ -43,13 +46,16 @@ export function helperPolicy(): CodexPolicy {
 //   plan              → read-only sandbox (the model can investigate but not edit), approvals on request
 //   default/acceptEdits → workspace-write, network off, approvals on request (a network/escalation need becomes a card)
 //   bypassPermissions → workspace-write, network off, no approvals (sandbox denials simply fail)
-export function sessionPolicy(o: { cwd: string; permissionMode?: PermissionMode | null; allowDanger?: boolean }): CodexPolicy {
+// Full access in a worktree session (fix / feature) → `untrusted` + screenOnly, so a PR approval / merge never runs
+// unasked. Plan mode keeps `on-request`: accepting under `untrusted` could lift its read-only sandbox.
+export function sessionPolicy(o: { cwd: string; permissionMode?: PermissionMode | null; allowDanger?: boolean; guardScope?: 'fix' | 'feature' | 'global' }): CodexPolicy {
   const mode = o.permissionMode ?? 'default'
   const danger = !!o.allowDanger
   let sandbox: SandboxPolicy
   if (mode === 'plan') sandbox = { type: 'readOnly', networkAccess: danger }
   else if (danger) sandbox = { type: 'dangerFullAccess' }
   else sandbox = { type: 'workspaceWrite', writableRoots: [o.cwd], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false }
-  const approval: ApprovalPolicy = mode === 'bypassPermissions' ? 'never' : 'on-request'
-  return { sandbox, sandboxMode: sandboxModeOf(sandbox), approval, autoDecide: null, ephemeral: false }
+  const screenOnly = sandbox.type === 'dangerFullAccess' && (o.guardScope === 'fix' || o.guardScope === 'feature')
+  const approval: ApprovalPolicy = screenOnly ? 'untrusted' : mode === 'bypassPermissions' ? 'never' : 'on-request'
+  return { sandbox, sandboxMode: sandboxModeOf(sandbox), approval, autoDecide: null, screenOnly, ephemeral: false }
 }
