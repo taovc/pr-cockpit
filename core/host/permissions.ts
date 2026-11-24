@@ -1,8 +1,9 @@
 import { nanoid } from 'nanoid'
 import { eq } from 'drizzle-orm'
 import type { CanUseTool, HookCallback, PermissionResult, PermissionUpdate } from '@anthropic-ai/claude-agent-sdk'
+import { classifyGithubCommand } from '../agent/commandGuard'
 import { isDangerousCommand } from '../agent/dangerGuard'
-import type { PromptAnswer, PromptKind, RunEvent } from './types'
+import type { PromptAnswer, PromptKind, RunEvent, RunSpec } from './types'
 
 // The permission bridge: the SDK asks (canUseTool) → we persist a pending permission_requests row, emit a
 // permission_request event and PARK the promise. The UI answers over HTTP → the promise resolves with the
@@ -124,14 +125,26 @@ export function answerPending(prompts: Map<string, PendingPrompt>, store: Prompt
   return true
 }
 
-// PreToolUse hook: dangerous Bash commands (push / rm -rf / sudo / gh pr create …) become a permission card in EVERY
-// permission mode (hooks run before the mode decides), unless the run's allowDanger switch is on. Read live so a
-// toggle mid-session takes effect on the next command.
-export function makeDangerHook(isAllowed: () => boolean): HookCallback {
+// PreToolUse hook: dangerous Bash commands (push / rm -rf / sudo / gh pr create / GitHub writes …) become a permission
+// card in EVERY permission mode (hooks run before the mode decides), unless the run's allowDanger switch is on.
+// Approving or merging a PR is denied outright in worktree sessions (fix / feature scope), whatever the switch says.
+// Both are read live so a toggle mid-session takes effect on the next command.
+export function makeDangerHook(isAllowed: () => boolean, scopeOf: () => RunSpec['guardScope'] = () => undefined): HookCallback {
   return async (input) => {
     if ((input as any).hook_event_name !== 'PreToolUse' || (input as any).tool_name !== 'Bash') return {}
     const cmd = String(((input as any).tool_input as any)?.command ?? '')
-    if (!isDangerousCommand(cmd) || isAllowed()) return {}
+    const gh = classifyGithubCommand(cmd)
+    const scope = scopeOf()
+    if (gh === 'approve-merge' && (scope === 'fix' || scope === 'feature')) {
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason: `Denied by PR Cockpit policy: approving or merging a pull request is done by the human in PR Cockpit, never from a worktree session. Blocked command: ${cmd.slice(0, 120)}`,
+        },
+      }
+    }
+    if ((!gh && !isDangerousCommand(cmd)) || isAllowed()) return {}
     return {
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',

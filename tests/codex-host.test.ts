@@ -94,6 +94,17 @@ try {
   const r7b = await codexHost.send('s1', 'run-command git commit -m x')
   assert.equal(r7b.isError, false)
   assert.equal(r7b.text, 'ran: accept')
+  // …but approving or merging a PR from a worktree session is caught even with the danger switch on
+  const r7c = await codexHost.send('s1', 'run-command gh pr merge 1 --squash')
+  assert.equal(r7c.isError, true)
+  // with approvals on, the merge is declined before it runs, without a card
+  codexHost.setAllowDanger('s1', false)
+  await codexHost.ensure({ runId: 's1', kind: 'session', cwd, permissionMode: 'default', guardScope: 'feature' })
+  const c7d = collect()
+  const r7d = await codexHost.send('s1', 'run-command gh pr review 1 --approve', { onEvent: c7d.onEvent })
+  assert.equal(r7d.text, 'ran: decline')
+  assert.equal(codexHost.pendingPrompts('s1').length, 0)
+  assert.ok(c7d.events.some((e) => e.t === 'permission_denied' && /done by the human in PR Cockpit/.test(e.message)))
 
   // 8. review one-shot: every command is decided before it runs — git status accepted, git push declined
   const tools: string[] = []

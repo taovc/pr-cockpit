@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { eq } from 'drizzle-orm'
 import { getDb, schema } from '../core/db/client'
+import { classifyGithubCommand } from '../core/agent/commandGuard'
 import { answerPending, makeDangerHook, makePromptBridge, toPermissionResult, type PendingPrompt } from '../core/host/permissions'
 import { createRun } from '../core/runs/store'
 import type { RunEvent } from '../core/host/types'
@@ -22,6 +23,62 @@ allow = true
 assert.deepEqual(await hook(pre('git push'), 'tu', opts), {}, 'allowDanger is read live')
 assert.deepEqual(await hook({ ...pre('git push'), tool_name: 'Write' }, 'tu', opts), {})
 console.log('danger hook: ok')
+
+// ── GitHub command classifier shared by the Claude hook and the Codex guards ──
+const gh = classifyGithubCommand
+for (const c of ['gh pr view 1', 'gh pr diff 1', 'gh pr checks 1', 'gh pr list', 'gh api repos/o/r/pulls/1', 'gh api -X GET repos/o/r/pulls',
+  'gh api --method GET search/issues -f q=x', 'gh pr create --base dev', 'git merge origin/dev', 'grep -rn "gh pr merge" core', 'echo gh pr merge 1', 'ls -la']) {
+  assert.equal(gh(c), null, c)
+}
+for (const c of ['gh pr merge 1', 'gh -R o/r pr merge 1 --admin --squash', 'gh --repo o/r pr merge 1', 'gh --repo=o/r pr merge --auto',
+  'gh pr review 1 --approve', 'gh pr review 1 -a', 'gh pr review 1 -a -b ok', 'gh api repos/o/r/pulls/1/reviews -f event=APPROVE',
+  "gh api repos/o/r/pulls/1/reviews -f 'event=APPROVE'", 'gh api -X PUT repos/o/r/pulls/1/merge', 'gh api --method=PUT /repos/o/r/pulls/1/merge -f merge_method=squash',
+  'FOO=1 gh pr merge 1', 'cd x && gh pr merge 1', '/opt/homebrew/bin/gh pr merge 1', 'command gh pr merge 1', 'env GH_TOKEN=x gh pr merge 1',
+  'gh pr view 1; gh pr merge 1', 'false || gh pr merge 1', 'echo y | gh pr merge 1', "/bin/zsh -lc 'git status && gh pr merge 1'", "bash -c 'gh pr merge 1'",
+  'x=$(gh pr merge 1)', 'gh api graphql -f query=\'mutation { mergePullRequest(input: {pullRequestId: "x"}) { clientMutationId } }\'']) {
+  assert.equal(gh(c), 'approve-merge', c)
+}
+for (const c of ['gh pr comment 1 -b x', 'gh pr review 1 --comment -b x', 'gh pr review 1 --request-changes -b x', 'gh pr edit 1 --title t', 'gh pr close 1',
+  'gh pr reopen 1', 'gh pr ready 1', 'gh pr lock 1', 'gh issue comment 1 -b x', 'gh issue edit 1', 'gh issue close 1', 'gh issue reopen 1', 'gh issue lock 1',
+  'gh issue delete 1', 'gh issue transfer 1 o/r2', 'gh release create v1', 'gh release edit v1', 'gh release delete v1', 'gh release upload v1 a.zip',
+  'gh label create bug', 'gh label edit bug', 'gh label delete bug', 'gh secret set X', 'gh secret delete X', 'gh variable set X', 'gh variable delete X',
+  'gh workflow run ci.yml', 'gh repo edit', 'gh repo archive', 'gh repo rename x', 'gh repo delete o/r', 'gh api repos/o/r/issues/1/comments -f body=x',
+  'gh api --method PATCH repos/o/r/pulls/1', 'gh api -X POST repos/o/r/issues', 'gh api -XDELETE repos/o/r/issues/1/labels', 'gh api repos/o/r/issues -F title=x',
+  'gh api repos/o/r/issues --field title=x', 'gh api repos/o/r/issues --raw-field title=x', 'gh api repos/o/r/issues --input body.json',
+  'gh api repos/o/r/pulls/1/reviews -f event=COMMENT', 'gh -R o/r issue comment 1 -b x', 'cd x && gh pr comment 1 -b y']) {
+  assert.equal(gh(c), 'github-write', c)
+}
+console.log('github command classifier: ok')
+
+// ── Hook decision per workspace kind × allowDanger ──
+const decide = async (cmd: string, scope: 'fix' | 'feature' | 'global' | undefined, allowDanger: boolean) => {
+  const r = await makeDangerHook(() => allowDanger, () => scope)(pre(cmd), 'tu', opts) as any
+  return r.hookSpecificOutput?.permissionDecision ?? 'pass'
+}
+for (const scope of ['fix', 'feature'] as const) {
+  for (const danger of [false, true]) {
+    assert.equal(await decide('gh -R o/r pr merge 1 --admin --squash', scope, danger), 'deny', `${scope} merge danger=${danger}`)
+    assert.equal(await decide('gh pr review 1 --approve', scope, danger), 'deny', `${scope} approve danger=${danger}`)
+    assert.equal(await decide('gh api repos/o/r/pulls/1/reviews -f event=APPROVE', scope, danger), 'deny')
+  }
+  assert.equal(await decide('gh pr comment 1 -b x', scope, false), 'ask')
+  assert.equal(await decide('gh pr comment 1 -b x', scope, true), 'pass')
+  assert.equal(await decide('gh api repos/o/r/issues/1/comments -f body=x', scope, false), 'ask')
+  assert.equal(await decide('gh pr create --base dev', scope, false), 'ask')
+  assert.equal(await decide('gh pr create --base dev', scope, true), 'pass')
+  assert.equal(await decide('gh pr view 1', scope, false), 'pass')
+}
+for (const scope of ['global', undefined] as const) {
+  assert.equal(await decide('gh pr merge 1', scope, false), 'ask', `${scope} merge asks`)
+  assert.equal(await decide('gh pr merge 1', scope, true), 'pass', `${scope} merge allowed with allowDanger`)
+  assert.equal(await decide('gh pr review 1 -a', scope, false), 'ask')
+  assert.equal(await decide('gh issue close 1', scope, false), 'ask')
+  assert.equal(await decide('gh issue close 1', scope, true), 'pass')
+  assert.equal(await decide('gh api repos/o/r/pulls/1', scope, false), 'pass')
+}
+const denied = await makeDangerHook(() => true, () => 'fix')(pre('gh pr merge 1'), 'tu', opts) as any
+assert.match(denied.hookSpecificOutput.permissionDecisionReason, /done by the human in PR Cockpit/)
+console.log('github write hook decisions: ok')
 
 // ── Answer → PermissionResult mapping ──
 const base: Pick<PendingPrompt, 'kind' | 'input' | 'suggestions'> = { kind: 'tool', input: { command: 'touch x' }, suggestions: [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'touch:*' }], behavior: 'allow', destination: 'localSettings' }] as any }

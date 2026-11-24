@@ -8,7 +8,7 @@ import { helperPolicy, reviewPolicy, sessionPolicy, type CodexPolicy } from './p
 import { codexSessionContract, codexUltracodePrompt } from './prompts'
 import { toCodexEffort } from '../agent/codexAgent'
 import { codexUltracodeEffort, getCodexModels } from '../agent/codexModels'
-import { shouldBlockCodexCommand } from '../agent/commandGuard'
+import { classifyGithubCommand, shouldBlockCodexCommand } from '../agent/commandGuard'
 import { usageFromCodexTurn } from '../agent/usage'
 import { answerPending, insertPromptRow, resolvePromptRow, type PendingPrompt } from '../host/permissions'
 import { makeRunEmitter, setRunStatus } from '../host/recorder'
@@ -299,6 +299,12 @@ class CodexHost implements SessionHost {
         const d = auto(command)
         rpc.respond(id, { decision: d === 'accept' ? accept(false) : decline })
         if (d === 'decline') live.emit({ t: 'permission_denied', toolName: 'Bash', message: `declined before execution by the read-only policy: ${command.slice(0, 200)}` })
+        return
+      }
+      const scope = live.spec.guardScope
+      if (scope && scope !== 'global' && classifyGithubCommand(command) === 'approve-merge') {
+        rpc.respond(id, { decision: decline })
+        live.emit({ t: 'permission_denied', toolName: 'Bash', message: `declined before execution: approving or merging a pull request is done by the human in PR Cockpit: ${command.slice(0, 200)}` })
         return
       }
       const amendment = Array.isArray(params.proposedExecpolicyAmendment) ? params.proposedExecpolicyAmendment as string[] : null
