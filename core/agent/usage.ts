@@ -10,13 +10,14 @@ const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v)
 // - usage + total_cost_usd are the fallback when modelUsage is absent (older CLIs).
 // Both are cumulative per query() lifetime; every entry point today runs one process per execution, so a
 // result is this execution's delta. (The streaming-input host will difference consecutive results itself.)
-export function usageFromClaudeResult(msg: any, fallbackModel?: string, cliVersion?: string | null): ProviderUsage | null {
+// rawKeys: name models by their modelUsage key (stable over a query() lifetime, unlike canonicalModel) for differencing.
+export function usageFromClaudeResult(msg: any, fallbackModel?: string, cliVersion?: string | null, o: { rawKeys?: boolean } = {}): ProviderUsage | null {
   if (!msg || msg.type !== 'result') return null
   const models: ModelUsageSnapshot[] = []
   const mu = msg.modelUsage
   if (mu && typeof mu === 'object') {
     for (const [key, u] of Object.entries<any>(mu)) {
-      const model = typeof u?.canonicalModel === 'string' && u.canonicalModel ? u.canonicalModel : key.replace(/\[1m\]$/i, '')
+      const model = !o.rawKeys && typeof u?.canonicalModel === 'string' && u.canonicalModel ? u.canonicalModel : rawModelName(key)
       const cost = typeof u?.costUSD === 'number' ? u.costUSD : null
       // Two keys can name the same model ("x" and "x[1m]"); one row each, so per-model differencing stays aligned.
       const same = models.find((m) => m.model === model)
@@ -58,6 +59,34 @@ export function usageFromClaudeResult(msg: any, fallbackModel?: string, cliVersi
     sessionId: typeof msg.session_id === 'string' ? msg.session_id : null,
     ...(cliVersion ? { cliVersion } : {}),
   }
+}
+
+const rawModelName = (key: string) => key.replace(/\[1m\]$/i, '')
+
+// Raw model name → the canonical id a result reports for it (only entries the CLI has priced carry one).
+export function claudeCanonicalModels(msg: any): Record<string, string> {
+  const out: Record<string, string> = {}
+  const mu = msg?.modelUsage
+  if (!mu || typeof mu !== 'object') return out
+  for (const [key, u] of Object.entries<any>(mu)) {
+    if (typeof u?.canonicalModel === 'string' && u.canonicalModel) out[rawModelName(key)] = u.canonicalModel
+  }
+  return out
+}
+
+// Rename a usage report's models, merging the ones that end up under the same name.
+export function renameUsageModels(u: ProviderUsage | null, names: Record<string, string>): ProviderUsage | null {
+  if (!u || !Object.keys(names).length) return u
+  const models: ModelUsageSnapshot[] = []
+  for (const m of u.models) {
+    const model = names[m.model] ?? m.model
+    const same = models.find((x) => x.model === model)
+    if (!same) { models.push({ ...m, model }); continue }
+    same.inputTokens += m.inputTokens; same.outputTokens += m.outputTokens
+    same.cacheReadTokens += m.cacheReadTokens; same.cacheCreateTokens += m.cacheCreateTokens
+    if (m.costUsd != null) { same.costUsd = (same.costUsd ?? 0) + m.costUsd; same.costSource = same.costSource ?? m.costSource }
+  }
+  return { ...u, models }
 }
 
 // The CLI version announced by the `system/init` message, or null for any other message.

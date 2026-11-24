@@ -1,5 +1,6 @@
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import { buildProbeOptions } from '../host/options'
+import { withTimeout } from '../host/config'
 
 export type ModelCap = {
   value: string
@@ -36,7 +37,7 @@ export async function getCapabilities(force = false): Promise<{ models: ModelCap
   // Settings load like a session's (availableModels, ANTHROPIC_DEFAULT_*_MODEL); MCP servers are not needed for the catalog.
   const q = query({ prompt: input as any, options: { ...buildProbeOptions({ cwd: process.cwd(), abort }), mcpServers: {}, strictMcpConfig: true } })
   try {
-    const models = (await q.supportedModels()).map(toModelCap)
+    const models = (await withTimeout(q.supportedModels(), 60_000, 'supportedModels')).map(toModelCap)
     _cache = { models, at: Date.now() }
     return { models }
   } finally {

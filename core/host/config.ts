@@ -155,7 +155,7 @@ const PROBE_TTL_MS = 5 * 60_000
 const probeCache = new Map<string, ProbeReport>()
 const inflight = new Map<string, Promise<ProbeReport>>()
 
-function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+export function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
   return new Promise((res, rej) => { const t = setTimeout(() => rej(new Error(`${what} timed out after ${ms}ms`)), ms); p.then(v => { clearTimeout(t); res(v) }, e => { clearTimeout(t); rej(e) }) })
 }
 

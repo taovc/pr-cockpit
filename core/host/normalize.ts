@@ -1,5 +1,5 @@
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk'
-import { usageFromClaudeResult } from '../agent/usage'
+import { claudeCanonicalModels, usageFromClaudeResult } from '../agent/usage'
 import type { ProviderUsage, ModelUsageSnapshot } from '../runs/types'
 import type { RunEvent } from './types'
 
@@ -76,11 +76,13 @@ export function normalize(msg: SDKMessage | any): RunEvent[] {
       break
     }
     case 'result': {
-      const usage = usageFromClaudeResult(msg)
+      const usage = usageFromClaudeResult(msg, undefined, undefined, { rawKeys: true })
+      const modelNames = claudeCanonicalModels(msg)
       out.push({
         t: 'turn_done', subtype: String(msg.subtype ?? 'success'), isError: !!msg.is_error, resultText: typeof msg.result === 'string' ? msg.result : (Array.isArray(msg.errors) ? msg.errors.map(String).join('\n') : ''),
         costUsd: typeof msg.total_cost_usd === 'number' ? msg.total_cost_usd : null, durationMs: Number(msg.duration_ms ?? 0), numTurns: Number(msg.num_turns ?? 0), usage,
         ...(typeof msg.user_message_uuid === 'string' && msg.user_message_uuid ? { userMessageUuid: msg.user_message_uuid } : {}),
+        ...(Object.keys(modelNames).length ? { modelNames } : {}),
       })
       break
     }

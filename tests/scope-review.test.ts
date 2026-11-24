@@ -12,6 +12,7 @@ import { ratingData } from '../core/metrics/queries'
 import { hasAiFindings, maxFidNumber } from '../core/review/findingRules'
 import { contextDocPath } from '../core/review/context'
 import { runScopeReview, scopeEffort, withFailedStages, type ScopeDeps } from '../core/review/scope'
+import { reviewRunEffort } from '../core/pipeline'
 import { checkInput, tierInput } from '../core/review/agents'
 import { getDb, schema } from '../core/db/client'
 import { eq } from 'drizzle-orm'
@@ -81,6 +82,9 @@ assert.deepEqual(rows.map((r) => r.tier), ['later', 'later', null], 'sorted must
 assert.equal(scopeEffort(''), 'high')
 assert.equal(scopeEffort(undefined), 'high')
 assert.equal(scopeEffort('medium'), 'medium')
+assert.equal(reviewRunEffort('claude', ''), 'high', "a Claude review's own run row records the stages' effort")
+assert.equal(reviewRunEffort(undefined, ''), 'high')
+assert.equal(reviewRunEffort('codex', ''), '', 'the Codex single-agent review runs at the model default')
 
 // ── REVIEW.md: the clone's copy from the base branch, then plain files up to home ──
 const home = mkdtempSync(join(tmpdir(), 'rmd-home-'))

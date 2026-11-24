@@ -6,6 +6,7 @@ import { normalize, diffCumulativeUsage } from './normalize'
 import { buildOptions } from './options'
 import { answerPending, makeDangerHook, makePromptBridge, resolvePromptRow, type PendingPrompt } from './permissions'
 import { makeRunEmitter, setRunStatus } from './recorder'
+import { renameUsageModels } from '../agent/usage'
 import type { ProviderUsage } from '../runs/types'
 import type { PromptAnswer, RunEvent, RunSpec, TurnCallbacks, TurnResult } from './types'
 
@@ -204,7 +205,7 @@ class ClaudeHost {
 
   // End the live turn on the result that answers it: per-turn usage delta, resolve the caller, idle again.
   private completeTurn(live: LiveRun, e: Extract<RunEvent, { t: 'turn_done' }>): void {
-    const delta = diffCumulativeUsage(live.lastCumulative, e.usage)
+    const delta = renameUsageModels(diffCumulativeUsage(live.lastCumulative, e.usage), e.modelNames ?? {})
     // A crash/startup-error result may carry zeroed usage: keep the baseline, or the next turn would be billed the whole session.
     if (e.usage && e.usage.models.some((m) => m.inputTokens || m.outputTokens)) live.lastCumulative = e.usage
     // On an API error the result text IS the error; the partial assistant output stays in the turn, not in the error.
