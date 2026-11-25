@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Scripted stand-in for `codex app-server` (JSON-RPC over stdio) for tests/codex-host.test.ts. The turn text drives
-// the scenario: "run-command <cmd>" (approval round trip unless approvalPolicy is never), "ask-question"
+// the scenario: "run-command <cmd>" (approval round trip unless approvalPolicy is never; "run-stdin" / "run-human" send the
+// writeStdin / humanCommand approval kinds), "ask-question"
 // (requestUserInput), "slow" (waits for turn/interrupt), "fail" (failed turn), "crash" (process dies mid-turn),
 // anything else = a commentary message followed by a final answer.
 import { createInterface } from 'node:readline'
@@ -20,6 +21,7 @@ let turnN = 0
 let itemN = 0
 let flakyLeft = null
 const threads = new Map()
+const threadStarts = []
 let usageTotal = { totalTokens: 0, inputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -40,18 +42,19 @@ async function runTurn(threadId, turnId, text, params) {
   }
   let status = 'completed'
   let error = null
-  const cmd = /run-command (.+)$/m.exec(text)
+  const cmd = /run-(command|stdin|human) (.+)$/m.exec(text)
   if (/crash/.test(text)) { await sleep(50); process.exit(3) }
   if (/slow/.test(text)) {
     for (let i = 0; i < 200 && !th.interrupted; i++) await sleep(25)
     status = th.interrupted ? 'interrupted' : 'completed'
   } else if (cmd) {
-    const command = cmd[1].trim()
+    const command = cmd[2].trim()
+    const kind = { command: 'command', stdin: 'writeStdin', human: 'humanCommand' }[cmd[1]]
     const id = `cmd-${++itemN}`
     notify('item/started', { threadId, turnId, item: { type: 'commandExecution', id, command, cwd: th.cwd, status: 'inProgress' } })
     let decision = 'accept'
     if (params.approvalPolicy !== 'never') {
-      const { id: rid, promise } = serverRequest('item/commandExecution/requestApproval', { threadId, turnId, itemId: id, startedAtMs: Date.now(), command, cwd: th.cwd, reason: null, proposedExecpolicyAmendment: ['git', 'status'] })
+      const { id: rid, promise } = serverRequest('item/commandExecution/requestApproval', { kind, threadId, turnId, itemId: id, startedAtMs: Date.now(), command, cwd: th.cwd, reason: null, proposedExecpolicyAmendment: ['git', 'status'] })
       const r = await promise
       decision = typeof r?.decision === 'string' ? r.decision : Object.keys(r?.decision ?? {})[0] ?? 'decline'
       notify('serverRequest/resolved', { threadId, requestId: rid })
@@ -99,6 +102,7 @@ rl.on('line', (line) => {
     case 'model/list': return reply({ data: [{ id: 'mock-1', model: 'mock-1', hidden: false, displayName: 'Mock 1', description: '', defaultReasoningEffort: 'medium', supportedReasoningEfforts: [{ reasoningEffort: 'low' }, { reasoningEffort: 'ultra' }] }], nextCursor: null })
     case 'thread/start': {
       const id = `t-${++threadN}`
+      threadStarts.push(p)
       threads.set(id, { cwd: p.cwd, approvalPolicy: p.approvalPolicy, model: p.model ?? 'mock-1', interrupted: false, instructions: p.developerInstructions ?? '' })
       reply({ thread: { id, sessionId: id, ephemeral: !!p.ephemeral, cwd: p.cwd }, model: p.model ?? 'mock-1' })
       return notify('thread/started', { thread: { id } })
@@ -123,9 +127,10 @@ rl.on('line', (line) => {
     case 'thread/compact/start': reply({}); return notify('thread/compacted', { threadId: p.threadId, turnId: null })
     case 'flaky': { flakyLeft = flakyLeft ?? Number(p.failures ?? 2); if (flakyLeft > 0) { flakyLeft--; return fail(-32001, 'overloaded') } flakyLeft = null; return reply({ ok: true, attempts: Number(p.failures ?? 2) + 1 }) }
     case 'echo': return reply({ echo: p })
+    case 'mock/threadStarts': return reply({ starts: threadStarts })
     case 'bad': return fail(-32000, 'bad request')
     case 'skills/list': return reply({ data: [{ cwd: p.cwds?.[0] ?? '', skills: [{ name: 'mock-skill', description: '', path: '/tmp/mock-skill', scope: 'user', enabled: true }], errors: [] }] })
-    case 'config/read': return reply({ config: { model: 'mock-1', approval_policy: 'on-request', sandbox_mode: 'workspace-write' }, origins: { model: { layer: { type: 'user' } } }, layers: null })
+    case 'config/read': return reply({ config: { model: 'mock-1', approval_policy: 'on-request', sandbox_mode: 'workspace-write', mcp_servers: { 'user-mcp': { command: 'x' }, 'project.mcp': { url: 'http://localhost:1' } } }, origins: { model: { layer: { type: 'user' } } }, layers: null })
     case 'mcpServerStatus/list': return reply({ data: [{ name: 'mock-mcp', authStatus: 'unsupported', tools: { a: {} } }], nextCursor: null })
     default: return m.id != null ? fail(-32601, `unknown method ${m.method}`) : undefined
   }

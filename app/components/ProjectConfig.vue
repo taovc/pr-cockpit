@@ -2,9 +2,10 @@
 import type { Project, Skill } from '~core/db/schema'
 const props = defineProps<{ project: Project }>()
 const emit = defineEmits<{ changed: []; deleted: [] }>()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
-type ModelCap = { value: string; displayName: string; description: string; supportsEffort: boolean; effortLevels: string[]; supportsFast?: boolean }
+type ModelUpgrade = { model: string; copy: string | null; link: string | null; retirementAt: number | null }
+type ModelCap = { value: string; id?: string; displayName: string; description: string; supportsEffort: boolean; effortLevels: string[]; defaultEffort?: string | null; supportsFast?: boolean; hidden?: boolean; upgrade?: ModelUpgrade | null; retired?: boolean }
 type Provider = 'claude' | 'codex'
 type ProviderStageId = 'review' | 'fix_chat' | 'recheck' | 'skill_generation' | 'publish_reply'
 type ProviderCapabilityStage = { id: ProviderStageId; claude: boolean; codex: boolean; providerControlled: boolean }
@@ -14,6 +15,7 @@ type AgentCapabilities = {
   providers?: { stages: ProviderCapabilityStage[] }
   codex?: CodexSdkStatus
   codexModels?: ModelCap[] // the models actually available to the current account, pulled live from `codex debug models`
+  codexHiddenModels?: ModelCap[]
   error?: string // returned by the backend when reading the local claude live fails (used by the Claude status card)
 }
 const CODEX_EFFORTS = ['low', 'medium', 'high', 'xhigh'] // fallback levels for when the model catalog is unavailable
@@ -55,15 +57,32 @@ const claudeStatus = computed(() => {
 })
 const selectedProviderLabel = computed(() => form.provider === 'codex' ? t('config.providerCodex') : t('config.providerClaude'))
 // Unified model list: claude uses the models actually available locally; codex uses the real models pulled live from `codex debug models`. Both include "global default".
+const codexCatalog = computed<ModelCap[]>(() => [...(caps.value?.codexModels ?? []), ...(caps.value?.codexHiddenModels ?? [])])
+const findCodexModel = (list: ModelCap[], model: string) => list.find((m) => m.value === model) || list.find((m) => m.id === model)
+// The saved Codex model left the picker (hidden or retired): keep it as its own row so it stays selected.
+const retiredCodexModel = computed<ModelCap | null>(() => {
+  const saved = props.project.model || ''
+  if ((props.project as Project & { provider?: Provider }).provider !== 'codex' || !saved || !caps.value?.codexModels) return null
+  if (findCodexModel(caps.value.codexModels, saved)) return null
+  // An empty list means the catalog could not be read, not that the model is gone.
+  if (!caps.value.codexModels.length) return { value: saved, displayName: saved, description: t('config.codexModelCatalogUnavailable'), supportsEffort: false, effortLevels: [] }
+  const hidden = findCodexModel(caps.value.codexHiddenModels ?? [], saved)
+  return hidden
+    ? { ...hidden, retired: true }
+    : { value: saved, displayName: saved, description: t('config.codexModelRetiredHint'), supportsEffort: false, effortLevels: [], retired: true }
+})
 const codexModelOptions = computed<ModelCap[]>(() => [
   { value: '', displayName: t('config.globalDefault'), description: t('config.codexModelPlaceholder'), supportsEffort: false, effortLevels: [] },
+  ...(retiredCodexModel.value ? [retiredCodexModel.value] : []),
   ...(caps.value?.codexModels ?? []),
 ])
+const isSelectedModel = (m: ModelCap) => form.model === m.value || (!!m.id && form.model === m.id)
+const retiresOn = (sec: number) => new Date(sec * 1000).toLocaleDateString(locale.value)
 const activeModelOptions = computed<ModelCap[]>(() => form.provider === 'codex' ? codexModelOptions.value : modelOptions.value)
 // The Fast switch is a no-op for a model without a speed tier: say so next to it (only when a concrete model is picked).
 const fastUnsupportedModel = computed(() => {
   if (form.provider !== 'codex' || !form.codexFast || !form.model) return null
-  const m = (caps.value?.codexModels ?? []).find((x) => x.value === form.model)
+  const m = findCodexModel(codexCatalog.value, form.model)
   return m && m.supportsFast === false ? (m.displayName || m.value) : null
 })
 const defaultCodexEfforts = computed(() => {
@@ -71,12 +90,12 @@ const defaultCodexEfforts = computed(() => {
   return efforts.size ? [...efforts] : CODEX_EFFORTS
 })
 const effortOptions = computed(() => {
-  const list = form.provider === 'codex' ? (caps.value?.codexModels ?? []) : (caps.value?.models ?? [])
-  const m = list.find((x) => x.value === form.model)
+  const m = form.provider === 'codex' ? findCodexModel(codexCatalog.value, form.model) : (caps.value?.models ?? []).find((x) => x.value === form.model)
   if (m) return m.supportsEffort ? m.effortLevels : []
   // "Global default" selected (no specific model): codex uses every level available in the current catalog, claude shows none
   return form.provider === 'codex' ? defaultCodexEfforts.value : []
 })
+const selectedDefaultEffort = computed(() => form.provider === 'codex' && form.model ? findCodexModel(codexCatalog.value, form.model)?.defaultEffort || '' : '')
 watch(() => form.model, () => { if (!effortOptions.value.includes(form.effort)) form.effort = '' })
 watch(() => form.provider, () => {
   form.model = ''
@@ -495,14 +514,18 @@ function codexAuthClass(status: CodexSdkStatus | null) {
           v-for="m in activeModelOptions"
           :key="m.value"
           class="w-full text-left flex items-start gap-3 px-3 py-2 rounded border transition-colors"
-          :class="form.model === m.value ? 'border-inverted bg-muted' : 'border-default hover:border-accented'"
+          :class="isSelectedModel(m) ? 'border-inverted bg-muted' : 'border-default hover:border-accented'"
           @click="form.model = m.value"
         >
-          <span class="w-3 shrink-0 text-highlighted text-sm leading-6">{{ form.model === m.value ? '✓' : '' }}</span>
+          <span class="w-3 shrink-0 text-highlighted text-sm leading-6">{{ isSelectedModel(m) ? '✓' : '' }}</span>
           <span class="min-w-0">
             <span class="text-sm font-medium">{{ m.displayName }}</span>
+            <span v-if="m.retired" class="ml-2 text-[10px] uppercase tracking-wide text-highlighted">{{ $t('config.codexModelRetired') }}</span>
             <span v-if="m.supportsEffort" class="ml-2 text-[10px] text-dimmed">effort: {{ m.effortLevels.join('/') }}</span>
             <span class="block text-xs text-dimmed mt-0.5">{{ m.description || (m.value ? '' : $t('config.inheritEnvDefault')) }}</span>
+            <span v-if="m.upgrade" class="block text-[11px] text-highlighted mt-0.5">
+              {{ $t('config.codexModelUpgrade', { model: m.upgrade.model }) }}<template v-if="m.upgrade.retirementAt"> · {{ $t('config.codexModelRetiresAt', { date: retiresOn(m.upgrade.retirementAt) }) }}</template><template v-if="m.upgrade.copy"> · {{ m.upgrade.copy }}</template>
+            </span>
           </span>
         </button>
       </div>
@@ -510,7 +533,7 @@ function codexAuthClass(status: CodexSdkStatus | null) {
       <div v-if="effortOptions.length" class="mt-4">
         <span class="text-xs text-dimmed">{{ $t('config.effortLabel') }}</span>
         <select v-model="form.effort" class="block text-sm border-b border-default py-1 bg-transparent outline-none min-w-32">
-          <option value="">{{ $t('config.effortNone') }}</option>
+          <option value="">{{ selectedDefaultEffort ? $t('config.effortNoneWithDefault', { effort: selectedDefaultEffort }) : $t('config.effortNone') }}</option>
           <option v-for="e in effortOptions" :key="e" :value="e">{{ e }}</option>
         </select>
       </div>

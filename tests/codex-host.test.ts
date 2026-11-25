@@ -8,7 +8,7 @@ process.env.CODEX_EXECUTABLE = resolve('tests/helpers/mockCodexAppServer.mjs')
 
 const { codexHost } = await import('../core/codex/codexHost')
 const { runCodexReadonly } = await import('../core/codex/oneshot')
-const { codexServerInfo, stopCodexServer } = await import('../core/codex/appServer')
+const { codexServerInfo, getCodexServer, stopCodexServer } = await import('../core/codex/appServer')
 const { CodexEventMapper } = await import('../core/codex/mapEvents')
 const { sessionPolicy, reviewPolicy } = await import('../core/codex/policy')
 type RunEvent = import('../core/host/types').RunEvent
@@ -105,6 +105,36 @@ try {
   const rv3 = await runCodexReadonly({ prompt: 'plain', cwd, label: 'review', outputSchema: { type: 'object' } })
   assert.equal(rv3.raw, '{"ok":true}') // only the final answer, never the commentary
   assert.equal(codexHost.liveRunIds().length, 1) // one-shot threads are closed afterwards
+  // input into a running terminal and person-only commands are declined before they run
+  const rv4 = await runCodexReadonly({ prompt: 'run-stdin bash', cwd, label: 'review' })
+  assert.equal(rv4.raw, 'ran: decline')
+  const rv5 = await runCodexReadonly({ prompt: 'run-human ls', cwd, label: 'review' })
+  assert.equal(rv5.raw, 'ran: decline')
+  // unattended threads switch every configured MCP server off by name, plus the app / computer / browser features
+  const { starts } = await (await getCodexServer()).rpc.request('mock/threadStarts', {}) as { starts: Array<Record<string, any>> }
+  const reviewStarts = starts.filter((s) => s.approvalPolicy === 'untrusted')
+  assert.ok(reviewStarts.length >= 3)
+  for (const s of reviewStarts) {
+    assert.deepEqual(s.config?.mcp_servers, { 'user-mcp': { enabled: false }, 'project.mcp': { enabled: false } })
+    assert.deepEqual(s.config?.features, { apps: false, computer_use: false, browser_use: false })
+  }
+  assert.ok(starts.filter((s) => s.approvalPolicy !== 'untrusted').every((s) => s.config?.mcp_servers === undefined))
+
+  // sessions: a writeStdin request never becomes a card; a humanCommand is a card with a one-time decision only
+  await codexHost.ensure({ runId: 's8', kind: 'session', cwd, permissionMode: 'default' })
+  const c8 = collect()
+  const r8 = await codexHost.send('s8', 'run-stdin bash', { onEvent: c8.onEvent })
+  assert.equal(r8.text, 'ran: decline')
+  assert.ok(c8.events.some((e) => e.t === 'permission_denied' && /writeStdin/.test(e.message)))
+  assert.ok(!c8.events.some((e) => e.t === 'permission_request'))
+  const p8 = codexHost.send('s8', 'run-human ls')
+  await waitFor(() => codexHost.pendingPrompts('s8').length === 1)
+  const human = codexHost.pendingPrompts('s8')[0]!
+  assert.equal(human.input.command, 'ls')
+  assert.equal(human.suggestions, undefined)
+  codexHost.answerPrompt('s8', human.id, { behavior: 'allow', always: true })
+  assert.equal((await p8).text, 'ran: accept') // "always" is not offered for a humanCommand
+  await codexHost.close('s8', 'done')
 
   // 9. stale thread id → fresh thread + a note
   const c9 = collect()
