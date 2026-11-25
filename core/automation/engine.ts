@@ -18,6 +18,13 @@ import { reviewFindingStats } from './findings'
 // plugin injecting the real implementations, which keeps the engine testable and core free of any
 // runtime dependency.
 
+// An upload (with the project's verify command, up to 10 minutes) runs out of band, so one PR's check never stalls the
+// tick for every other PR. Keyed by session run id; the PR is skipped while its upload is in flight.
+const pushesInFlight = new Map<string, Promise<void>>()
+export function settleAutomationPushes(): Promise<void> {
+  return Promise.all([...pushesInFlight.values()]).then(() => {})
+}
+
 export type EnginePull = {
   number: number
   author: string
@@ -35,7 +42,8 @@ export type EngineDeps = {
   // posting failed → {posted:false,error} (already contained, no retry)
   dispatchPost(reviewId: string): Promise<{ posted: boolean; error?: string }>
   dispatchFix(projectId: string, prNumber: number, reviewId: string): Promise<void>
-  dispatchPush(fixId: string): Promise<void>
+  // verifyFailed = the project's verify command failed before the upload (nothing pushed); other failures throw
+  dispatchPush(fixId: string): Promise<void | { verifyFailed: true; tail: string }>
   now(): string
   currentUser?: string | null // currently logged-in gh user (default for the auto-fix author allowlist)
   log?(msg: string): void
@@ -125,6 +133,7 @@ async function evaluatePr(db: any, schema: any, deps: EngineDeps, project: any, 
   const fix = getLatestFix(db, schema, project.id, p.number)
   if (fix && deps.isChatting(fix.id)) return // fix conversation running, wait
   if (fix && fix.status === 'pushing') return // upload in progress, wait
+  if (fix && pushesInFlight.has(fix.id)) return // upload dispatched (its check may still be running), wait
 
   // One scan computes both the actionable count and the total finding count (don't hit the DB twice)
   const stats = review ? reviewFindingStats(db, schema, review.id) : { total: 0, actionable: 0, actionableFindings: [] }
@@ -195,21 +204,34 @@ async function evaluatePr(db: any, schema: any, deps: EngineDeps, project: any, 
         break
       case 'push':
         if (fix) {
-          try {
-            await deps.dispatchPush(fix.id)
-            // push succeeded → clear pendingFix (the head changed, so the next round's every_push
-            // triggers a recheck)
-            upsertPrAutomation(db, schema, project.id, p.number, { pendingFix: false }, deps.now())
-            rec('pushed')
-          } catch (e) {
-            // push failed (including push.post.ts's up-front 4xx: worktree gone / invalid branch /
-            // no changes etc., which throw before it sets fix=error).
-            // pendingFix MUST be cleared — otherwise decide's step 1 unconditionally picks push again
-            // every round, a permanent hot loop that also short-circuits the round cap. Stop
-            // automation for this PR + record push_error.
-            upsertPrAutomation(db, schema, project.id, p.number, { reviewOn: false, fixOn: false, pendingFix: false, note: 'push_error' }, deps.now())
-            rec('push_error', (e as Error).message)
-          }
+          const fixId = fix.id
+          const job = Promise.resolve().then(() => deps.dispatchPush(fixId)).then(
+            (r) => {
+              if (r?.verifyFailed) {
+                // The repo's own check failed: stop this PR's automation without pushing and without a new fix turn
+                // (feeding the failure back would loop fix → verify → fix).
+                upsertPrAutomation(db, schema, project.id, p.number, { reviewOn: false, fixOn: false, pendingFix: false, note: 'verify_failed' }, deps.now())
+                rec('verify_failed', r.tail.slice(-4000))
+                return
+              }
+              // push succeeded → clear pendingFix (the head changed, so the next round's every_push
+              // triggers a recheck)
+              upsertPrAutomation(db, schema, project.id, p.number, { pendingFix: false }, deps.now())
+              rec('pushed')
+            },
+            (e) => {
+              // push failed (including push.post.ts's up-front 4xx: worktree gone / invalid branch /
+              // no changes etc., which throw before it sets fix=error).
+              // pendingFix MUST be cleared — otherwise decide's step 1 unconditionally picks push again
+              // every round, a permanent hot loop that also short-circuits the round cap. Stop
+              // automation for this PR + record push_error.
+              upsertPrAutomation(db, schema, project.id, p.number, { reviewOn: false, fixOn: false, pendingFix: false, note: 'push_error' }, deps.now())
+              rec('push_error', (e as Error).message)
+            },
+          )
+            .catch((e) => deps.log?.(`PR #${p.number} push bookkeeping failed: ${(e as Error).message}`))
+            .finally(() => { pushesInFlight.delete(fixId) })
+          pushesInFlight.set(fixId, job)
         }
         break
     }

@@ -1,9 +1,9 @@
-import { eq, asc, inArray } from 'drizzle-orm'
+import { eq, asc, inArray, sql } from 'drizzle-orm'
 import { isRecheckResolved } from '../recheckAxes'
-import { isAutomatable } from './automatable'
+import { isAutomatable, isUnattendedAutomatable } from './automatable'
 import { stillToPost } from '../review/postGate'
 
-export { isAutomatable }
+export { isAutomatable, isUnattendedAutomatable }
 
 // Single definition of an "outstanding finding": severity is High/Medium (we don't chase Low/nit) and it is not yet resolved.
 // Resolved = we retracted it, or the author fixed/replied to it — decided by isRecheckResolved, which reads both axes.
@@ -17,7 +17,7 @@ const ACTIONABLE_SEVERITY = new Set(['High', 'Medium'])
 
 
 export type ReviewFindingStats = {
-  total: number // findings automation may post (0 = nothing to post)
+  total: number // findings automation may post unattended (0 = nothing to post)
   actionable: number // how many still need handling
   actionableFindings: any[] // the finding rows still needing handling (by sortOrder, for buildAutoFixMessage)
 }
@@ -42,12 +42,34 @@ export function reviewFindingStats(db: any, schema: any, reviewId: string): Revi
   }
 
   const actionableFindings = findings.filter((f) => {
-    if (!isAutomatable(f)) return false
+    if (!isUnattendedAutomatable(f)) return false
     if (f.tier == null && !ACTIONABLE_SEVERITY.has(f.severity)) return false
     const rc = latest.get(f.id)
     return !rc || !isRecheckResolved(rc) // never rechecked, or the latest round left it open → still to fix
   })
-  return { total: findings.filter(isAutomatable).length, actionable: actionableFindings.length, actionableFindings }
+  return { total: findings.filter(isUnattendedAutomatable).length, actionable: actionableFindings.length, actionableFindings }
+}
+
+// Before an unattended post: tick what the stricter gate allows and is still to post (autoPostIds), and untick the machine
+// ticks the gate rejects (the drawer's 'auto' tick or an earlier round's 'engine' tick on a Low / noise-rated scope
+// finding). A human's tick is left alone.
+export function prepareUnattendedPost(db: any, schema: any, reviewId: string, nowIso: string): { ticked: number; unticked: number } {
+  const rows = db.select().from(schema.findings).where(eq(schema.findings.reviewId, reviewId)).all() as any[]
+  const rechecks = rows.length ? db.select().from(schema.findingRechecks).where(inArray(schema.findingRechecks.findingId, rows.map((f) => f.id))).all() as any[] : []
+  const postable = new Set(autoPostIds(rows, rechecks))
+  const tick = rows.filter((f) => isUnattendedAutomatable(f) && postable.has(f.id)).map((f) => f.id)
+  const untick = rows
+    .filter((f) => f.checked && (f.checkedBy === 'auto' || f.checkedBy === 'engine') && (f.tier != null || f.source != null) && !isUnattendedAutomatable(f))
+    .map((f) => f.id)
+  if (tick.length) {
+    db.update(schema.findings)
+      .set({ checked: true, checkedBy: sql`CASE WHEN ${schema.findings.checked} = 1 AND ${schema.findings.checkedBy} IS NOT NULL THEN ${schema.findings.checkedBy} ELSE 'engine' END`, checkedAt: nowIso })
+      .where(inArray(schema.findings.id, tick)).run()
+  }
+  if (untick.length) {
+    db.update(schema.findings).set({ checked: false, checkedBy: 'engine', checkedAt: nowIso }).where(inArray(schema.findings.id, untick)).run()
+  }
+  return { ticked: tick.length, unticked: untick.length }
 }
 
 // Which findings automation ticks before posting: automatable ones, minus those a re-review settled (fixed, replied,

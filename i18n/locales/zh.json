@@ -396,6 +396,9 @@
     "engineLevelHint": "内置 /code-review 的级别，越高查得越细、越慢。默认 high。",
     "verifyBeforePost": "发前验证",
     "verifyBeforePostHint": "首次审核后再跑一遍只读反驳；被反驳的 finding 保留可见但不勾选。",
+    "verifyCommand": "上传前检查命令",
+    "verifyCommandHint": "在 PR 的 worktree 里于上传前运行（自动上传和手动上传都会跑），失败就不上传。只用这里的设置，从不读 PR 分支里的配置。检查改动了文件也算失败。运行时带 CI=1，去掉凭据类环境变量，但仍能联网，跑的也是 PR 自己的脚本：它能拦下失误，拦不住恶意改动。留空=不检查。",
+    "verifyCommandPlaceholder": "例如 pnpm typecheck && pnpm test",
     "autoCooldown": "自动化冷却期(分钟)",
     "autoCooldownHint": "新提交后等待再动手，0=不冷却"
   },
@@ -561,6 +564,11 @@
     "commitMsgLabel": "提交信息",
     "commitMsgPlaceholder": "提交信息（可改）",
     "rePushHint": "改动已提交，将直接重新推送到远端。",
+    "verifyWillRun": "上传前会先运行检查：{cmd}",
+    "verifyLastOk": "上次检查通过（{at}）",
+    "verifyLastFailed": "上次检查失败（{at}）",
+    "verifyFailed": "上传前检查失败，未上传",
+    "uploadAnyway": "仍然上传",
     "viewChanges": "查看改动",
     "you": "你",
     "chatPlaceholder": "继续聊 / 让 AI 再改（如：F3 换个写法；这里漏了空值判断…）",
@@ -708,6 +716,7 @@
       "deleted": "已关闭（任务已删）",
       "post_error": "发评论失败 · 已停",
       "push_error": "上传失败 · 已停",
+      "verify_failed": "上传前检查失败 · 已停",
       "fix_unverified": "已修复 · 待人工复核",
       "post_held": "PR 有新提交 · 已复审，待你手动发布（自动修复也暂停）"
     },
@@ -725,6 +734,7 @@
       "fix_error": "修复失败 · 待人工",
       "post_error": "发评论失败：{info}",
       "push_error": "上传失败：{info}",
+      "verify_failed": "上传前检查失败，未上传：{info}",
       "fix_unverified": "已修复，待人工复核（once 模式不自动复查）",
       "cooldown": "冷却中，{info} 分钟后开始",
       "post_held": "PR 在审核后有新提交：已排一次复审，评论留给你手动发；发布前自动修复也暂停"

@@ -8,17 +8,17 @@ import { reviewFindingStats } from './findings'
 // their own copy; do not use an "English or else Chinese" binary.
 const FIX_MESSAGE = {
   zh: {
-    header: '请逐条处理下面这些代码审核发现的问题，直接修改 worktree 里的文件（不要 commit，由上传流程统一提交）。修完后简述每条怎么改的。',
+    header: '请逐条处理下面这些代码审核发现的问题，直接修改 worktree 里的文件（不要 commit，由上传流程统一提交）。修完后简述每条怎么改的。结束前运行仓库自己的检查（按仓库文档里写的测试 / 类型检查 / lint），贴出实际执行的命令和输出；跑不了的检查要说明原因。不要只说「已修复」。',
     problem: '问题',
     fix: '建议',
   },
   en: {
-    header: 'Address each of the following code-review findings by editing the files in the worktree (do NOT commit — the upload step handles that). After fixing, briefly explain what you changed for each.',
+    header: 'Address each of the following code-review findings by editing the files in the worktree (do NOT commit — the upload step handles that). After fixing, briefly explain what you changed for each. Before you finish, run the repository\'s own checks (tests / typecheck / lint, as the repository documents them) and paste the exact commands and their output; if a check cannot run, say why. Never just claim it is fixed.',
     problem: 'Problem',
     fix: 'Suggested fix',
   },
   fr: {
-    header: 'Traite chacun des points de revue ci-dessous en modifiant les fichiers du worktree (ne fais PAS de commit — l’étape d’envoi s’en charge). Une fois corrigé, explique brièvement ce que tu as changé pour chacun.',
+    header: 'Traite chacun des points de revue ci-dessous en modifiant les fichiers du worktree (ne fais PAS de commit — l’étape d’envoi s’en charge). Une fois corrigé, explique brièvement ce que tu as changé pour chacun. Avant de terminer, lance les vérifications du dépôt (tests / typecheck / lint, comme le dépôt les documente) et colle les commandes exactes et leur sortie ; si une vérification ne peut pas tourner, dis pourquoi. Ne te contente jamais d’affirmer que c’est corrigé.',
     problem: 'Problème',
     fix: 'Correction suggérée',
   },

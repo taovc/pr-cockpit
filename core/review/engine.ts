@@ -6,6 +6,7 @@ import { buildReviewOptions, claudeConfigDir } from '../host/options'
 import { withContract } from '../agent/guard'
 import { ClaudeRunError, consumeClaudeRun, settleClaudeRun, usageOfError } from '../agent/claudeRun'
 import { mergeUsage } from '../agent/usage'
+import { RULE_AUTHORITY } from './context'
 import { jsonSchemaFor, parseStructured } from '../agent/structured'
 import type { ProviderUsage } from '../runs/types'
 
@@ -50,7 +51,7 @@ export function taskGate(ready: () => void): { onMessage: (m: any) => void; onRe
 
 export function buildEngineAppend(instruction?: string | null): string {
   const ask = (instruction || '').trim()
-  return withContract(`You are reviewing a pull request with the /code-review command.${ask ? `\n\nThe reviewer asked for this pass specifically (it narrows where you look, not the bar for reporting):\n> ${ask.replace(/\n/g, '\n> ')}` : ''}`)
+  return withContract(`You are reviewing a pull request with the /code-review command.\n\n${RULE_AUTHORITY}${ask ? `\n\nThe reviewer asked for this pass specifically (it narrows where you look, not the bar for reporting):\n> ${ask.replace(/\n/g, '\n> ')}` : ''}`)
 }
 
 export async function runEngine(opts: {

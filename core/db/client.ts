@@ -172,6 +172,7 @@ function ensureColumns(sqlite: Database.Database) {
     ['reviews', 'review_md_suggestion', 'TEXT'],
     ['reviews', 'pipeline_meta', 'TEXT'],
     ['projects', 'review_engine_level', "TEXT NOT NULL DEFAULT 'high'"],
+    ['projects', 'verify_command', 'TEXT'],
     ['finding_labels', 'repo', 'TEXT'],
     ['finding_rechecks', 'fixed_by', 'TEXT'],
     ['pr_automation', 'post_held', 'INTEGER NOT NULL DEFAULT 0'],

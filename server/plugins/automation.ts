@@ -1,10 +1,11 @@
-import { eq, sql, inArray } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { getDb, schema } from '~core/db/client'
 import { listPulls, getCurrentUserLogin } from '~core/github/gh'
 import { isRunBusy } from '~core/runs/session'
 import { runAutomationTick, type EngineDeps } from '~core/automation/engine'
 import { buildAutoFixMessage } from '~core/automation/fixprompt'
-import { autoPostIds } from '~core/automation/findings'
+import { prepareUnattendedPost } from '~core/automation/findings'
+import { verifyFailureOf } from '~core/fix/verify'
 import { resolveLang } from '~core/agent/lang'
 
 // The resident PR automation engine: the only server-side timed loop (a Nitro plugin like recover.ts,
@@ -51,15 +52,8 @@ export default defineNitroPlugin((nitroApp) => {
     // draft (→ ready_to_post) so decide does not pick post again every round; 400 (nothing to post) stays silent, the
     // rest is returned as an error and the engine stops automation for this PR.
     dispatchPost: async (reviewId) => {
-      // Tick what automation may post (autoPostIds), but never overwrite a human's own decision provenance.
-      const rows = d.select().from(schema.findings).where(eq(schema.findings.reviewId, reviewId)).all() as any[]
-      const rcs = rows.length ? d.select().from(schema.findingRechecks).where(inArray(schema.findingRechecks.findingId, rows.map((f) => f.id))).all() as any[] : []
-      const ids = autoPostIds(rows, rcs)
-      if (ids.length) {
-        d.update(schema.findings)
-          .set({ checked: true, checkedBy: sql`CASE WHEN ${schema.findings.checked} = 1 AND ${schema.findings.checkedBy} IS NOT NULL THEN ${schema.findings.checkedBy} ELSE 'engine' END`, checkedAt: now() })
-          .where(inArray(schema.findings.id, ids)).run()
-      }
+      // Tick what automation may post unattended and is still to post, drop machine ticks it may not; a human's tick stays.
+      prepareUnattendedPost(d, schema, reviewId, now())
       try {
         await $fetch(`/api/reviews/${reviewId}/post`, { method: 'POST', headers: cookieHeader, body: { dryRun: false } })
         return { posted: true }
@@ -90,9 +84,15 @@ export default defineNitroPlugin((nitroApp) => {
       // Unattended: the danger guard stays on and the session runs in its default mode.
       await $fetch(`/api/runs/${created.id}/messages`, { method: 'POST', headers: cookieHeader, body: { message, allowDanger: false } })
     },
-    // Upload the fix (commit + push, reusing all of the push endpoint's safety checks)
+    // Upload the fix (commit + push, reusing all of the push endpoint's safety checks; the project's verify command runs first)
     dispatchPush: async (fixId) => {
-      await $fetch(`/api/runs/${fixId}/push`, { method: 'POST', headers: cookieHeader, body: { dryRun: false } })
+      try {
+        await $fetch(`/api/runs/${fixId}/push`, { method: 'POST', headers: cookieHeader, body: { dryRun: false } })
+      } catch (e: any) {
+        const failed = verifyFailureOf(e)
+        if (failed) return failed
+        throw e
+      }
     },
   }
 

@@ -56,7 +56,7 @@ export async function runScopeReview(o: ScopeReviewOptions, deps: ScopeDeps = { 
   const agent = { cwd: o.cwd, model: o.model, effort, projectDirName: o.projectDirName, abort: o.abort, onTool: o.onTool }
 
   o.emit('收集上下文：REVIEW.md、需求原意、CI、项目记忆')
-  const ctx = await deps.gather({ repo: o.repo, prNumber: o.prNumber, localPath: o.localPath, defaultBranch: o.defaultBranch, projectDirName: o.projectDirName, projects: o.projects })
+  const ctx = await deps.gather({ repo: o.repo, prNumber: o.prNumber, localPath: o.localPath, cwd: o.cwd, defaultBranch: o.defaultBranch, projectDirName: o.projectDirName, projects: o.projects })
   const contextPath = writeContextDoc(o.historyRoot, o.reviewId, buildContextDoc({ ...ctx, repo: o.repo, prNumber: o.prNumber, defaultBranch: o.defaultBranch, instruction: o.instruction }))
   o.emit(`上下文已备好（REVIEW.md ${ctx.reviewMd.length} 份 · 需求来源 ${ctx.requirement.source} · CI ${ctx.checks.length} 项）：${contextPath}`)
 

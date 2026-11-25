@@ -386,29 +386,41 @@ async function stop() {
 function openPr() { void send(t('feature.openPrMsg'), { allowDanger: true }) }
 
 // ── commit & upload (PR sessions) ──
-type Preview = { diff: string; truncated: boolean; message: string; needsCommit: boolean; filesChanged: number; additions: number; deletions: number }
+type LastVerify = { ok: boolean; running: boolean; command: string; tail: string; error: string | null; at: string | null }
+type Preview = { diff: string; truncated: boolean; message: string; needsCommit: boolean; filesChanged: number; additions: number; deletions: number; verifyCommand?: string | null; verify?: LastVerify | null }
 const preview = ref<Preview | null>(null)
 const commitMsg = ref('')
+// The project's pre-upload check failed on the last upload attempt (or the last recorded run failed) → offer "upload anyway".
+const verifyFail = ref<{ tail: string; message: string } | null>(null)
 async function openPreview() {
   busy.value = 'upload'
+  const id = currentRunId.value
   try {
-    const res = await $fetch<Preview>(`/api/runs/${currentRunId.value}/push`, { method: 'POST', body: { dryRun: true } })
+    const res = await $fetch<Preview>(`/api/runs/${id}/push`, { method: 'POST', body: { dryRun: true } })
+    if (id !== currentRunId.value) return
     preview.value = res
     commitMsg.value = res.message || ''
+    verifyFail.value = res.verify && !res.verify.ok && !res.verify.running ? { tail: res.verify.tail, message: res.verify.error || t('fix.verifyFailed') } : null
     view.value = 'preview'
   } catch (e: any) { notify(e?.data?.statusMessage || t('common.failed')) }
   finally { busy.value = '' }
 }
-async function confirmUpload() {
+async function confirmUpload(skipVerify = false) {
   busy.value = 'upload'
+  const id = currentRunId.value
   try {
-    const res = await $fetch<{ sha: string }>(`/api/runs/${currentRunId.value}/push`, { method: 'POST', body: { dryRun: false, message: commitMsg.value.trim() || undefined } })
+    const res = await $fetch<{ sha: string }>(`/api/runs/${id}/push`, { method: 'POST', body: { dryRun: false, message: commitMsg.value.trim() || undefined, skipVerify } })
     notify(t('fix.pushedOnly', { sha: res.sha }), true)
+    if (id !== currentRunId.value) return
     view.value = 'chat'
     preview.value = null
+    verifyFail.value = null
     await load()
     emit('changed')
-  } catch (e: any) { notify(e?.data?.statusMessage || t('fix.pushFailed')) }
+  } catch (e: any) {
+    notify(e?.data?.statusMessage || t('fix.pushFailed'))
+    if (id === currentRunId.value && e?.data?.data?.verifyFailed) verifyFail.value = { tail: String(e.data.data.tail ?? ''), message: e.data.statusMessage || t('fix.verifyFailed') }
+  }
   finally { busy.value = '' }
 }
 
@@ -470,9 +482,23 @@ const canOpenIde = computed(() => !!data.value?.workspace.exists)
           <input v-model="commitMsg" type="text" :placeholder="$t('fix.commitMsgPlaceholder')" class="w-full text-sm bg-muted border border-default rounded px-3 py-2 mt-1 mb-3 outline-none focus:border-accented font-mono" />
         </template>
         <p v-else class="text-xs text-dimmed mb-3">{{ $t('fix.rePushHint') }}</p>
+        <template v-if="preview.verifyCommand">
+          <div v-if="verifyFail" class="text-xs mb-3 border border-warning rounded p-2 bg-warning/10">
+            <div class="text-warning mb-1">{{ verifyFail.message }}</div>
+            <pre class="font-mono text-[11px] text-toned whitespace-pre-wrap max-h-60 overflow-y-auto">{{ verifyFail.tail }}</pre>
+          </div>
+          <p class="text-xs text-dimmed mb-3">
+            {{ $t('fix.verifyWillRun', { cmd: preview.verifyCommand }) }}
+            <span v-if="preview.verify?.ok && preview.verify.at && !verifyFail"> · {{ $t('fix.verifyLastOk', { at: hhmmss(preview.verify.at) }) }}</span>
+            <span v-else-if="preview.verify && !preview.verify.ok && !preview.verify.running && preview.verify.at"> · {{ $t('fix.verifyLastFailed', { at: hhmmss(preview.verify.at) }) }}</span>
+          </p>
+        </template>
         <div class="flex items-center gap-3 mb-3">
-          <button class="text-sm bg-inverted text-inverted px-4 py-1.5 hover:bg-inverted/90 disabled:opacity-40" :disabled="(preview.needsCommit && !commitMsg.trim()) || !!busy" @click="confirmUpload">
+          <button class="text-sm bg-inverted text-inverted px-4 py-1.5 hover:bg-inverted/90 disabled:opacity-40" :disabled="(preview.needsCommit && !commitMsg.trim()) || !!busy" @click="confirmUpload()">
             {{ busy === 'upload' ? $t('fix.pushing') : $t('fix.commitAndUpload') }}
+          </button>
+          <button v-if="preview.verifyCommand && verifyFail" class="text-sm border border-warning text-warning px-3 py-1.5 hover:bg-warning/10 disabled:opacity-40" :disabled="(preview.needsCommit && !commitMsg.trim()) || !!busy" @click="confirmUpload(true)">
+            {{ $t('fix.uploadAnyway') }}
           </button>
           <button class="text-sm text-dimmed hover:text-highlighted" @click="view = 'chat'">{{ $t('common.cancel') }}</button>
         </div>

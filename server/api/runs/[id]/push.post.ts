@@ -11,6 +11,7 @@ import { isRunBusy } from '~core/runs/session'
 import { fixChangesDiff, fixChangesStat, hasUploadable } from '~core/fix/changes'
 import { genCommitMessage } from '~core/fix/commitmsg'
 import { assertCodexAheadCommitSafe, assertCodexCommitSafe } from '~core/fix/codexCommitSafety'
+import { checkBeforeUpload, lastVerifyResult } from '~core/fix/verify'
 import { getRunOr404 } from '../../../utils/runContext'
 
 const pexec = promisify(execFile)
@@ -19,11 +20,12 @@ const SAFE_REF = /^[A-Za-z0-9][A-Za-z0-9._\-/]*$/
 // "Commit and upload" for a PR session: `git add -A && commit && push` the changes the agent left in the worktree to the
 // PR branch. dryRun=true → the pending diff + a generated commit message + stats (nothing committed); dryRun=false → for
 // real, with the (possibly edited) message from the preview. Always user-triggered (or the automation engine).
-const Body = z.object({ dryRun: z.boolean().default(false), message: z.string().max(500).optional() })
+// The project's verify command (if any) runs first; skipVerify is the preview's "upload anyway".
+const Body = z.object({ dryRun: z.boolean().default(false), message: z.string().max(500).optional(), skipVerify: z.boolean().default(false) })
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')!
-  const { dryRun, message } = Body.parse((await readBody(event).catch(() => ({}))) || {})
+  const { dryRun, message, skipVerify } = Body.parse((await readBody(event).catch(() => ({}))) || {})
   const d = db()
   const run = getRunOr404(id)
   if (run.workspaceType !== 'pr_worktree') throw createError({ statusCode: 400, statusMessage: '只有 PR 会话可以上传' })
@@ -60,13 +62,20 @@ export default defineEventHandler(async (event) => {
     ])
     const { merging, msg: mergeMsg } = await mergeState()
     const genMsg = !dirty ? '' : merging ? (mergeMsg || `Merge into ${branch}`) : await genCommitMessage(helperTargetOf(resolveReviewConfig(d, project)), diff, wt)
-    return { dryRun: true, diff, truncated, message: genMsg, needsCommit: dirty, isMerge: merging, ...stat }
+    const verifyCommand = project.verifyCommand?.trim() || null
+    return { dryRun: true, diff, truncated, message: genMsg, needsCommit: dirty, isMerge: merging, verifyCommand, verify: verifyCommand ? lastVerifyResult(d, schema, wt, run.createdAt) : null, ...stat }
   }
 
   // CAS-claim the worktree: busy_action = pushing.
   const claimed = d.update(schema.runs).set({ busyAction: 'pushing', error: null, updatedAt: now() })
     .where(and(eq(schema.runs.id, id), isNull(schema.runs.busyAction))).run()
   if (!claimed.changes) throw createError({ statusCode: 409, statusMessage: '该会话正在上传或状态已变，请刷新' })
+
+  const verifyCommand = project.verifyCommand?.trim()
+  if (verifyCommand && !skipVerify) {
+    const fail = await checkBeforeUpload(d, schema, { runId: id, command: verifyCommand, cwd: wt, provider: run.provider === 'codex' ? 'codex' : 'claude', projectId: project.id, prNumber: run.prNumber ?? null, branch })
+    if (fail) throw createError(fail)
+  }
 
   try {
     const { merging } = await mergeState()

@@ -7,6 +7,7 @@ import { jsonSchemaFor, parseStructured } from '../agent/structured'
 import { outputLangClause, resolveLang } from '../agent/lang'
 import type { ProviderUsage } from '../runs/types'
 import type { RawFinding } from './assemble'
+import { RULE_AUTHORITY } from './context'
 
 // The project-context, check and tier agents: clean runs, everything they need is in the prompt.
 
@@ -47,11 +48,13 @@ Lenses:
 - Product decisions and business rules: behaviour that contradicts REVIEW.md, decision records or business-rule files.
 - Cross-boundary: when the change is read or written by another repo, service or external system (API, callback, event, queue, shared table or field, generated data, file path, env or secret name), open the other side and check producer vs consumer, deploy order and environment differences.
 - Any extra lens REVIEW.md defines for this kind of change.
-${CONTEXT_RULES}`
+${CONTEXT_RULES}
+${RULE_AUTHORITY}`
 
 // Stands in for the bug finder when it failed; the project lenses already ran.
 const CORRECTNESS_SYSTEM = `You are the bug finder of a pull request this time. Look only for correctness bugs in the change: wrong logic, unhandled errors, races, wrong data or permissions, broken contracts with the code it calls or that calls it. Project conventions and history are covered by another pass.
-${CONTEXT_RULES}`
+${CONTEXT_RULES}
+${RULE_AUTHORITY}`
 
 export async function runContextPass(o: AgentBase & { contextPath: string; baseBranch: string; correctnessOnly: boolean }): Promise<Out<z.infer<typeof ContextResultSchema>>> {
   return runAgent({
@@ -70,7 +73,8 @@ const CHECK_SYSTEM = `You check claims about code, one at a time, independently.
 - "confirmed": the code shows the described behaviour or failure path (cite file:line).
 - "refuted": the code shows the claim is wrong — the case is already handled, the path is unreachable, or the code was misread (cite file:line).
 - "unsure": you cannot decide from the code; say what is missing.
-Only correctness matters. "It existed before this PR", "low impact", "rare", "style", "out of scope" are NOT reasons to refute — those claims are confirmed if true. Never edit files or run git/gh write commands.`
+Only correctness matters. "It existed before this PR", "low impact", "rare", "style", "out of scope" are NOT reasons to refute — those claims are confirmed if true. Never edit files or run git/gh write commands.
+${RULE_AUTHORITY}`
 
 // The claims as the checker sees them: location, claim and scenario only.
 export function checkInput(findings: RawFinding[]): string {
@@ -118,7 +122,8 @@ Tier by value to this PR (not by correctness — that was checked already):
 Severity (High/Medium/Low) is the impact if it ships, judged separately from the tier: a pre-existing Medium can still be "must".
 Evidence: "ci" only when a CI check in the context file shows the failure; otherwise "inferred".
 An "engine label" (important / pre-existing / nit) is how the bug finder tagged its finding: a hint for tier and severity, not a rule.
-REVIEW.md rules and its not-report list override these defaults.
+The base branch's REVIEW.md rules and its not-report list override these defaults.
+${RULE_AUTHORITY}
 Writing: title = the problem in one short sentence (≤ 40 characters in Chinese, ≤ 12 words otherwise); problem = the consequence in one short sentence; detail = the failure scenario and evidence; fix = the direction of a fix in one or two sentences. location = path:line. No tables, no long paragraphs. Never cite the internal ids (E1, C2…) anywhere in the text; they belong only in the ids field. Never quote project memory or REVIEW.md text: findings may be posted publicly; describe the problem in terms of the code.
 Also return: conclusion — can it merge, and what blocks it, in one sentence; notDone — the checks nobody ran (tests not executed, UI not opened, the other repo not read…), one sentence; reviewMdSuggestion — a rule or known false positive worth adding to REVIEW.md for next time, or empty.`
 

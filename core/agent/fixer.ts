@@ -10,5 +10,7 @@ ${conflictHint ? `\n${conflictHint}\n` : ''}
 Do NOT commit or push. The reviewer reviews your edits in the UI and clicks "Upload", which commits and pushes for them. (Only push if the user explicitly asks.)
 Never approve or merge a pull request, and do not post comments or reviews on GitHub: the human does that in PR Cockpit.
 
+Before you finish, run the repository's own checks (tests / typecheck / lint, as the repository documents them) and paste the exact commands you ran with their output. If a check cannot run, say which one and why. Never just claim it is fixed.
+
 ${askUserClause(lang)}`
 }

@@ -2,8 +2,10 @@ import assert from 'node:assert/strict'
 import { nanoid } from 'nanoid'
 import { and, eq } from 'drizzle-orm'
 import { getDb, schema } from '../core/db/client'
-import { runAutomationTick, type EngineDeps } from '../core/automation/engine'
+import { runAutomationTick, settleAutomationPushes, type EngineDeps } from '../core/automation/engine'
 import { getPrAutomationRow } from '../core/automation/state'
+import { buildAutoFixMessage } from '../core/automation/fixprompt'
+import { prepareUnattendedPost } from '../core/automation/findings'
 
 // Fully in-memory engine integration test: runs the real runAutomationTick + state/findings/decide against a
 // :memory: SQLite DB, but replaces every dispatch that would touch GitHub/git (create review / recheck / post comment /
@@ -109,6 +111,7 @@ async function runUntilStable(deps: EngineDeps, calls: any, max = 40) {
   let prev = -1
   for (let i = 0; i < max; i++) {
     await runAutomationTick(d, schema, deps)
+    await settleAutomationPushes()
     const total = calls.review + calls.recheck + calls.post + calls.fix + calls.push
     if (total === prev) return i
     prev = total
@@ -273,6 +276,105 @@ async function runUntilStable(deps: EngineDeps, calls: any, max = 40) {
   assert.equal(calls.push, 0, 'with auto-fix off, the in-flight fix must not be pushed')
   assert.equal(getPrAutomationRow(d, schema, PID, PR)!.pendingFix, false, 'pendingFix should be cleared')
   console.log('automation-engine off-autofix-no-push: ok')
+}
+
+// ── 11) Unattended gate: a scope review whose only "must" findings are Low (or rated noise) has nothing to post or fix ──
+for (const [label, rows] of [
+  ['low-only', [{ severity: 'Low', rating: null }, { severity: 'Low', rating: null }]],
+  ['rated-noise', [{ severity: 'High', rating: 'noise' }]],
+] as const) {
+  resetWorld(); setConfig()
+  const { deps, calls } = makeWorld({ convergeAfter: Infinity })
+  deps.dispatchReview = async (pid, pr) => {
+    calls.review++
+    d.insert(schema.reviews).values({ id: 'R1', projectId: pid, prNumber: pr, prUrl: 'u', branch: 'b', headSha: 'H0', status: 'draft', prState: 'open', createdAt: now(), updatedAt: now() }).run()
+    rows.forEach((r, i) => d.insert(schema.findings).values({
+      id: nanoid(), reviewId: 'R1', fid: `F${i + 1}`, severity: r.severity, title: 'x', introducedByPr: true, checked: false, sortOrder: i, createdAt: now(),
+      tier: 'must', source: 'engine', verifyStatus: 'confirmed', rating: r.rating,
+    } as any).run())
+  }
+  await runUntilStable(deps, calls)
+  assert.equal(calls.review, 1)
+  assert.equal(calls.post, 0, `${label}: nothing may be posted unattended (the draft stays silent)`)
+  assert.equal(calls.fix, 0, `${label}: nothing may be fixed unattended`)
+  assert.equal(calls.push, 0)
+  console.log(`automation-engine unattended-gate ${label}: ok`)
+}
+
+// ── 12) The project's verify command fails before the upload → no push, both switches off, note + event verify_failed, no re-dispatch, round unchanged ──
+{
+  resetWorld(); setConfig(); d.delete(schema.automationEvents).run()
+  const { deps, calls } = makeWorld({ convergeAfter: Infinity })
+  deps.dispatchPush = async () => { calls.push++; return { verifyFailed: true as const, tail: 'FAIL tests/a.test.ts\nexpected 1, got 2' } }
+  await runUntilStable(deps, calls)
+  assert.equal(calls.fix, 1)
+  assert.equal(calls.push, 1, 'a failed check is not retried every tick')
+  const row = getPrAutomationRow(d, schema, PID, PR)!
+  assert.equal(row.note, 'verify_failed')
+  assert.equal(row.reviewOn, false)
+  assert.equal(row.fixOn, false)
+  assert.equal(row.pendingFix, false)
+  assert.equal(row.round, 1, 'the failed check does not spend or reset a round')
+  const fx = d.select().from(schema.runs).where(eq(schema.runs.id, 'FX1')).get() as any
+  assert.equal(fx.uploadState, 'ready', 'nothing was pushed: the changes stay uploadable by hand')
+  const evs = d.select().from(schema.automationEvents).where(eq(schema.automationEvents.projectId, PID)).all() as any[]
+  const ev = evs.find((e) => e.kind === 'verify_failed')
+  assert.ok(ev && ev.message.includes('expected 1, got 2'), 'the timeline keeps the output tail')
+  assert.ok(!evs.some((e) => e.kind === 'push_error' || e.kind === 'pushed'), 'distinct from push_error')
+  const before = { ...calls }
+  await runAutomationTick(d, schema, deps); await runAutomationTick(d, schema, deps)
+  assert.deepEqual(calls, before, 'nothing is dispatched on later ticks (no new fix turn, no push)')
+  for (const lang of ['zh', 'en', 'fr']) assert.match(buildAutoFixMessage(d, schema, 'R1', lang)!, /lint/, `the ${lang} auto-fix instruction asks for the checks and their output`)
+  console.log('automation-engine verify-failed-stops: ok')
+}
+
+// ── 13) An upload runs out of band: a push whose check is still running does not hold up the tick, is not dispatched again, and is booked when it ends ──
+{
+  resetWorld(); setConfig(); d.delete(schema.automationEvents).run()
+  const { deps, calls } = makeWorld({ convergeAfter: Infinity })
+  let release!: () => void
+  const gate = new Promise<void>((r) => { release = r })
+  deps.dispatchPush = async () => { calls.push++; await gate; return { verifyFailed: true as const, tail: 'slow check failed' } }
+  for (let i = 0; i < 6 && calls.push === 0; i++) await runAutomationTick(d, schema, deps)
+  assert.equal(calls.push, 1, 'the push was dispatched')
+  assert.equal(getPrAutomationRow(d, schema, PID, PR)!.pendingFix, true, 'still in flight: nothing booked yet')
+  await runAutomationTick(d, schema, deps); await runAutomationTick(d, schema, deps)
+  assert.equal(calls.push, 1, 'no second upload while the first is in flight')
+  release(); await settleAutomationPushes()
+  const row = getPrAutomationRow(d, schema, PID, PR)!
+  assert.equal(row.note, 'verify_failed')
+  assert.equal(row.pendingFix, false)
+  const evs = d.select().from(schema.automationEvents).where(eq(schema.automationEvents.projectId, PID)).all() as any[]
+  assert.ok(evs.some((e) => e.kind === 'verify_failed' && e.message.includes('slow check failed')))
+  console.log('automation-engine push-out-of-band: ok')
+}
+
+// ── 14) Before an unattended post, machine ticks the stricter gate rejects are withdrawn; a human tick stays ──
+{
+  resetWorld()
+  d.insert(schema.reviews).values({ id: 'R1', projectId: PID, prNumber: PR, prUrl: 'u', branch: 'b', headSha: 'H0', status: 'draft', prState: 'open', createdAt: now(), updatedAt: now() }).run()
+  const scope = { introducedByPr: true, createdAt: now(), tier: 'must', source: 'engine', verifyStatus: 'confirmed', title: 'x', reviewId: 'R1' }
+  const rows = [
+    { id: 'high', fid: 'F1', severity: 'High', checked: false, checkedBy: null, rating: null },
+    { id: 'low-auto', fid: 'F2', severity: 'Low', checked: true, checkedBy: 'auto', rating: null },
+    { id: 'noise-engine', fid: 'F3', severity: 'High', checked: true, checkedBy: 'engine', rating: 'noise' },
+    { id: 'low-human', fid: 'F4', severity: 'Low', checked: true, checkedBy: 'human', rating: null },
+  ]
+  rows.forEach((r, i) => d.insert(schema.findings).values({ ...scope, ...r, sortOrder: i } as any).run())
+  d.insert(schema.findings).values({ id: 'legacy', reviewId: 'R1', fid: 'F5', severity: 'Low', title: 'x', introducedByPr: true, checked: true, checkedBy: 'auto', sortOrder: 9, createdAt: now() } as any).run()
+  d.insert(schema.findings).values({ ...scope, id: 'settled', fid: 'F6', severity: 'High', checked: false, checkedBy: null, rating: null, sortOrder: 10 } as any).run()
+  d.insert(schema.findingRechecks).values({ id: 'rc-settled', findingId: 'settled', round: 1, status: 'fixed', at: now() } as any).run()
+  assert.deepEqual(prepareUnattendedPost(d, schema, 'R1', now()), { ticked: 2, unticked: 2 })
+  const got = Object.fromEntries((d.select().from(schema.findings).where(eq(schema.findings.reviewId, 'R1')).all() as any[]).map((f) => [f.id, f]))
+  assert.equal(got['high'].checked, true)
+  assert.equal(got['high'].checkedBy, 'engine')
+  assert.equal(got['low-auto'].checked, false, 'a Low must ticked by the drawer is not posted unattended')
+  assert.equal(got['noise-engine'].checked, false, 'a must+confirmed rated noise is not posted unattended')
+  assert.equal(got['low-human'].checked, true, "a human's tick is the human's decision")
+  assert.equal(got['low-human'].checkedBy, 'human')
+  assert.equal(got['legacy'].checked, true, 'legacy findings keep their rule')
+  assert.equal(got['settled'].checked, false, 'fixed by a re-review before it was ever posted: not ticked back on')
+  console.log('automation-engine unattended-post-unticks: ok')
 }
 
 console.log('automation-engine: all ok')
