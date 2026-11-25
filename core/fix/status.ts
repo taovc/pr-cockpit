@@ -8,3 +8,10 @@ export function computeFixNextStatus(args: {
   if (args.dirty || args.ahead) return 'ready'
   return args.currentStatus === 'pushed' ? 'pushed' : 'open'
 }
+
+// Startup recovery of an upload that was cut off (busy_action = pushing): it landed only when the worktree is clean and
+// its HEAD is what origin/<branch> points at. Uncommitted changes mean the cut came before the commit (the pre-upload
+// check or the commit message), so HEAD still equals the remote without anything having been pushed.
+export function interruptedPushLanded(a: { localHead: string | null; remoteHead: string | null; dirty: boolean | null }): boolean {
+  return a.dirty === false && !!a.localHead && !!a.remoteHead && a.localHead === a.remoteHead
+}

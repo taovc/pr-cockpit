@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs'
 import { getDb, schema } from '~core/db/client'
 import { migrateWorktreeToRepo, removeWorktree } from '~core/git/worktree'
 import { recoverHostState } from '~core/host/recover'
+import { interruptedPushLanded } from '~core/fix/status'
 import { reviewHistoryRootFor, sweepOrphanHistories } from '~core/agent/reviewHistory'
 
 const pexec = promisify(execFile)
@@ -111,8 +112,8 @@ export default defineNitroPlugin(async () => {
   }
 
   // 2) Interrupted upload (busy_action = pushing): the push may already have reached GitHub (it just wasn't written back).
-  // Reconcile origin/<branch> against the worktree's real HEAD: equal = it succeeded → pushed; otherwise → error (the user
-  // re-uploads; push is idempotent and has no side effects).
+  // Reconcile origin/<branch> against the worktree's real HEAD: equal on a clean worktree = it succeeded → pushed; otherwise
+  // → error (the user re-uploads; push is idempotent and has no side effects).
   try {
     const stuck = d.select().from(schema.runs).where(eq(schema.runs.busyAction, 'pushing')).all()
     for (const f of stuck as any[]) {
@@ -120,11 +121,14 @@ export default defineNitroPlugin(async () => {
       let localHead: string | null = f.fixHeadSha
       if (f.workspacePath && existsSync(f.workspacePath) && f.branch) {
         try { localHead = (await git(f.workspacePath, ['rev-parse', 'HEAD'])).stdout.trim() || f.fixHeadSha } catch { /* fall back to the DB value */ }
+        let dirty: boolean | null = null
+        try { dirty = (await git(f.workspacePath, ['status', '--porcelain'])).stdout.trim() !== '' } catch { /* unknown → not pushed */ }
+        let remoteHead: string | null = null
         try {
           const { stdout } = await git(f.workspacePath, ['ls-remote', 'origin', f.branch])
-          const remoteSha = stdout.trim().split(/\s+/)[0] || ''
-          pushed = !!remoteSha && !!localHead && remoteSha === localHead
+          remoteHead = stdout.trim().split(/\s+/)[0] || null
         } catch { /* network/remote unreachable → treat as not pushed */ }
+        pushed = interruptedPushLanded({ localHead, remoteHead, dirty })
       }
       if (pushed) {
         d.update(schema.runs)
