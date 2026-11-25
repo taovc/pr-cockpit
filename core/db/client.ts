@@ -161,6 +161,7 @@ function ensureColumns(sqlite: Database.Database) {
     ['runs', 'busy_action', 'TEXT'],
     ['runs', 'forked_from', 'TEXT'],
     ['runs', 'cli_version', 'TEXT'],
+    ['runs', 'model_actual', 'TEXT'],
     ['runs', 'review_rules', 'TEXT'],
     ['findings', 'tier', 'TEXT'],
     ['findings', 'evidence', 'TEXT'],

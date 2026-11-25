@@ -123,4 +123,13 @@ for (const file of ['core/metrics/queries.ts', 'core/inbox/queries.ts']) {
   }
 }
 
+// Model × effort groups by the model the CLI announced: an alias and the explicit id it resolved to are one group;
+// a run recorded before the column existed keeps its requested model.
+for (const [model, modelActual] of [['opus', 'claude-opus-5-5'], ['claude-opus-5-5', 'claude-opus-5-5'], ['sonnet', null]] as const) {
+  const rid = createRun(d, schema, { kind: 'review', subkind: 'review', provider: 'claude', projectId: 'Q', model, effort: 'high' })
+  recordRunUsage(d, schema, rid, { models: [], costUsd: 1, costSource: 'reported', durationMs: 10, numTurns: 1, ...(modelActual ? { modelActual } : {}) })
+  finishRun(d, schema, rid, { status: 'done' })
+}
+assert.deepEqual(reviewRunsByModel(d, { projectId: 'Q' }).map((r) => [r.model, r.runs]), [['claude-opus-5-5', 2], ['sonnet', 1]])
+
 console.log('metrics-queries: all ok')
