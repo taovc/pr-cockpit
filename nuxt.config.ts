@@ -15,7 +15,6 @@ export default defineNuxtConfig({
     strategy: 'no_prefix',
     defaultLocale: 'en',
     langDir: 'locales',
-    lazy: true,
     locales: [
       { code: 'fr', name: 'Français', language: 'fr-FR', file: 'fr.json' },
       { code: 'en', name: 'English', language: 'en-US', file: 'en.json' },
@@ -27,7 +26,6 @@ export default defineNuxtConfig({
       redirectOn: 'root',
       fallbackLocale: 'en',
     },
-    bundle: { optimizeTranslationDirective: false },
     // Some hint strings contain inline tags like <b>/<br> (static copy we maintain, rendered with v-html in templates)
     compilation: { strictMessage: false },
   },

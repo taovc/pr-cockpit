@@ -39,6 +39,11 @@ assert.equal(row.cliVersion, null, 'no version reported, none recorded')
 recordRunUsage(d, schema, runId, { models: [], costUsd: null, costSource: null, cliVersion: '2.1.310' })
 row = d.select().from(schema.runs).where(eq(schema.runs.id, runId)).get()!
 assert.equal(row.cliVersion, '2.1.310', 'the CLI version lands on the run')
+assert.equal(row.modelActual, null)
+recordRunUsage(d, schema, runId, { models: [], costUsd: null, costSource: null, modelActual: 'claude-opus-5-5' })
+row = d.select().from(schema.runs).where(eq(schema.runs.id, runId)).get()!
+assert.equal(row.modelActual, 'claude-opus-5-5', 'the announced model lands beside the requested one')
+assert.equal(row.model, 'opus')
 const usageRows = d.select().from(schema.runUsage).where(eq(schema.runUsage.runId, runId)).all()
 assert.equal(usageRows.length, 2)
 finishRun(d, schema, runId, { status: 'done' })

@@ -319,7 +319,7 @@
     "useEnvDefault": "Utiliser le modèle par défaut du .env",
     "inheritEnvDefault": "Hérite du défaut .env",
     "effortLabel": "Intensité de revue (effort)",
-    "effortNone": "(non défini, défaut du modèle)",
+    "effortNone": "(non défini : défaut propre du modèle, medium pour les modèles Claude 5.x ; les étapes de revue Claude utilisent high)",
     "noEffortSupport": "Ce modèle ne supporte pas le réglage d'effort",
     "refreshCodexModels": "Actualiser le catalogue de modèles",
     "refreshingCodexModels": "Actualisation…",

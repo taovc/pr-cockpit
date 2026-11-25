@@ -21,7 +21,7 @@ export type RunEvent =
   | { t: 'status'; status: 'busy' | 'idle' | 'compacting' | 'waiting_prompt' | 'closed' }
   | { t: 'local_command'; content: string }
   | { t: 'reset'; sessionId: string | null } // the CLI cleared the conversation (/clear): new transcript, cost baseline resets
-  | { t: 'turn_done'; subtype: string; isError: boolean; resultText: string; costUsd: number | null; durationMs: number; numTurns: number; usage: ProviderUsage | null; userMessageUuid?: string } // userMessageUuid: the send this result answers (absent on the CLI's own meta turns and from older CLIs)
+  | { t: 'turn_done'; subtype: string; isError: boolean; resultText: string; costUsd: number | null; durationMs: number; numTurns: number; usage: ProviderUsage | null; userMessageUuid?: string; modelNames?: Record<string, string> } // userMessageUuid: the send this result answers (absent on the CLI's own meta turns and from older CLIs); usage is keyed by raw model name, modelNames maps it to the canonical id
   | { t: 'note'; text: string }
   | { t: 'commands'; commands: Array<{ name: string; description: string; argumentHint: string; aliases?: string[] }> } // the CLI replaced its slash-command list mid-session // provider-side notices that are neither errors nor output (Codex warnings, plan updates, hooks)
   | { t: 'error'; message: string }

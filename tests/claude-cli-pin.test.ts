@@ -38,6 +38,14 @@ assert.equal(claudeCliVersionOf({ type: 'system', subtype: 'task_started' }), nu
 assert.equal(usageFromClaudeResult(ok, 'opus', '2.1.310')?.cliVersion, '2.1.310')
 assert.equal('cliVersion' in (usageFromClaudeResult(ok, 'opus') ?? {}), false)
 
+// ── usage is recorded under the canonical model; a "[1m]" key is the same model ──
+const mu = (o: Record<string, any>) => usageFromClaudeResult({ ...ok, total_cost_usd: 1, modelUsage: o })!.models
+assert.deepEqual(mu({ opus: { inputTokens: 1, outputTokens: 1, costUSD: 0.5, canonicalModel: 'claude-opus-5-5' } }).map((m) => m.model), ['claude-opus-5-5'])
+assert.deepEqual(mu({ 'claude-sonnet-5[1m]': { inputTokens: 1, outputTokens: 1, costUSD: 0.5 } }).map((m) => m.model), ['claude-sonnet-5'])
+const both = mu({ 'claude-sonnet-5': { inputTokens: 1, outputTokens: 2, costUSD: 0.25 }, 'claude-sonnet-5[1m]': { inputTokens: 10, outputTokens: 20, costUSD: 0.5 } })
+assert.equal(both.length, 1, 'one row per model, so per-model differencing stays aligned')
+assert.deepEqual([both[0]!.inputTokens, both[0]!.outputTokens, both[0]!.costUsd], [11, 22, 0.75])
+
 // ── draining a run ──
 async function* stream(msgs: any[], thenThrow?: Error) { for (const m of msgs) yield m; if (thenThrow) throw thenThrow }
 const init = { type: 'system', subtype: 'init', claude_code_version: EXPECTED_CLAUDE_CODE_VERSION }
@@ -52,6 +60,9 @@ assert.deepEqual(good.structured, { x: 1 })
 assert.equal(good.costUsd, 0.5)
 assert.equal(good.usage?.cliVersion, EXPECTED_CLAUDE_CODE_VERSION)
 assert.deepEqual(tools, ['Read'])
+assert.equal(good.usage?.modelActual, undefined, 'init named no model')
+const aliased = await consumeClaudeRun(stream([{ ...init, model: 'claude-opus-5-5' }, { ...ok, total_cost_usd: 0.1 }]), { model: 'opus' })
+assert.equal(aliased.usage?.modelActual, 'claude-opus-5-5', 'the model system/init announced is kept beside the requested alias')
 
 // An API error result followed by the CLI's non-zero exit: the result's message wins and the usage survives.
 const apiErr = { ...ok, is_error: true, num_turns: 1, terminal_reason: 'api_error', result: 'model not found', total_cost_usd: 0.01 }
