@@ -197,7 +197,10 @@
       "failed": "Échec de l'approbation",
       "own_pr": "GitHub n'autorise pas l'approbation de votre propre pull request",
       "not_open": "Cette PR n'est plus ouverte — rouvrez le panneau pour actualiser",
-      "pending_review": "Vous avez une review non soumise sur GitHub — soumettez-la ou supprimez-la d'abord"
+      "pending_review": "Vous avez une review non soumise sur GitHub — soumettez-la ou supprimez-la d'abord",
+      "headMoved": "Nouveaux commits depuis votre lecture ({sha})",
+      "anyway": "Approuver quand même",
+      "reload": "Recharger"
     },
     "dismiss": {
       "button": "Retirer l'approbation",
@@ -533,7 +536,8 @@
     "langWarnLeak": "encore dans la langue source",
     "skipReason": {
       "repliedNoNote": "réponse seule · pas de note",
-      "retracted": "retiré"
+      "retracted": "retiré",
+      "stillOpen": "déjà publié et toujours non résolu — pas répété"
     },
     "deleteBtn": "Supprimer",
     "deleteTitle": "Supprimer cette tâche de revue (local ; commentaires GitHub conservés)",
@@ -705,7 +709,7 @@
       "post_error": "Échec de publication — arrêté",
       "push_error": "Échec du push — arrêté",
       "fix_unverified": "Corrigé — à re-vérifier",
-      "post_held": "Nouveaux commits · re-revu, publication manuelle"
+      "post_held": "Nouveaux commits · re-revu, publication manuelle (auto-correction en pause)"
     },
     "tab": "Automatisation",
     "noEvents": "Aucune activité d'automatisation",
@@ -723,7 +727,7 @@
       "push_error": "Échec du push : {info}",
       "fix_unverified": "Corrigé — re-revue manuelle requise (mode once)",
       "cooldown": "En attente — démarre dans {info} min",
-      "post_held": "La PR a bougé après la revue : une re-revue lancée, la publication vous revient"
+      "post_held": "La PR a bougé après la revue : une re-revue lancée, la publication vous revient ; l’auto-correction attend votre publication"
     },
     "modeLabel": "Mode de revue",
     "fixAuthorHint": "Vide = seulement vos propres PR. Ajoutez des auteurs pour corriger celles des autres (lance un agent + push).",

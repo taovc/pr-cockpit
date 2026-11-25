@@ -1,6 +1,7 @@
 import { eq, asc, inArray } from 'drizzle-orm'
 import { isRecheckResolved } from '../recheckAxes'
 import { isAutomatable } from './automatable'
+import { stillToPost } from '../review/postGate'
 
 export { isAutomatable }
 
@@ -47,4 +48,15 @@ export function reviewFindingStats(db: any, schema: any, reviewId: string): Revi
     return !rc || !isRecheckResolved(rc) // never rechecked, or the latest round left it open → still to fix
   })
   return { total: findings.filter(isAutomatable).length, actionable: actionableFindings.length, actionableFindings }
+}
+
+// Which findings automation ticks before posting: automatable ones, minus those a re-review settled (fixed, replied,
+// retracted) before they were ever posted — the author never saw them, so they are not announced as fixed either.
+export function autoPostIds(findings: any[], rechecks: Array<{ findingId: string; round: number; status: string; stance?: string | null }>): string[] {
+  const latest = new Map<string, { round: number; status: string; stance: string | null }>()
+  for (const rc of rechecks) {
+    const cur = latest.get(rc.findingId)
+    if (!cur || rc.round > cur.round) latest.set(rc.findingId, { round: rc.round, status: rc.status, stance: rc.stance ?? null })
+  }
+  return findings.filter((f) => isAutomatable(f) && stillToPost(f, isRecheckResolved(latest.get(f.id)))).map((f) => f.id)
 }

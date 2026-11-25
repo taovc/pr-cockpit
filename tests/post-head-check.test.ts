@@ -3,8 +3,9 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fixedUncheck, fixingCommit, headMoved, pathOfLocation } from '../core/review/postGate'
-import { teamLabel, withTeamLabel } from '../core/github/post'
+import { fixedUncheck, fixingCommit, headMoved, parseLocation, pathOfLocation, stillToPost } from '../core/review/postGate'
+import { planFinding, teamLabel, withTeamLabel, type PostFinding } from '../core/github/post'
+import { autoPostIds } from '../core/automation/findings'
 import { getDb, schema } from '../core/db/client'
 import { getPrAutomationRow, upsertPrAutomation } from '../core/automation/state'
 
@@ -58,6 +59,36 @@ assert.equal(withTeamLabel('Unbounded read without a header', 'High'), 'Unbounde
   const row = getPrAutomationRow(db, schema, 'P', 7)!
   assert.equal(row.postHeld, true)
   assert.equal(row.note, 'converged')
+}
+
+// ── locations ──
+assert.deepEqual(parseLocation('core/a.ts:12'), { path: 'core/a.ts', line: 12 })
+assert.deepEqual(parseLocation('core/a.ts:12-20'), { path: 'core/a.ts', line: 12 })
+assert.deepEqual(parseLocation('README.md'), { path: 'README.md', line: null })
+assert.equal(parseLocation(''), null)
+
+// ── a re-review that settled a never-posted finding: automation does not tick it back on ──
+assert.equal(stillToPost({ postedPostId: null }, true), false)
+assert.equal(stillToPost({ postedPostId: 'p1' }, true), true, 'posted before: stays for the "Confirmed fixed" line')
+assert.equal(stillToPost({ postedPostId: null }, false), true)
+{
+  const must = { tier: 'must', source: 'engine', verifyStatus: 'confirmed', severity: 'High' }
+  const rows = [{ id: 'a', ...must }, { id: 'b', ...must }, { id: 'c', ...must, postedPostId: 'p1' }, { id: 'd', ...must, tier: 'later' }]
+  const rcs = [{ findingId: 'a', round: 1, status: 'fixed' }, { findingId: 'c', round: 1, status: 'fixed' }, { findingId: 'b', round: 1, status: 'fixed' }, { findingId: 'b', round: 2, status: 'unaddressed' }]
+  assert.deepEqual(autoPostIds(rows, rcs).sort(), ['b', 'c'], 'a: fixed before posting → dropped; b: latest round reopened it; c: posted → kept; d: not automatable')
+}
+
+// ── no repeats: a posted finding nothing happened to is not posted again ──
+{
+  const base: PostFinding = { fid: 'F1', severity: 'High', title: 't', location: 'a.ts:1', problem: null, detail: null, fix: null, notes: null, introducedByPr: true, recheck: null }
+  const posted = { ...base, postedUrl: 'https://github.com/o/r/pull/1#pullrequestreview-1' }
+  assert.deepEqual(planFinding(posted), { action: 'skip', reason: 'still-open' }, 'posted, not re-reviewed since: not repeated')
+  assert.deepEqual(planFinding({ ...posted, recheck: { status: 'unaddressed', text: null } }), { action: 'skip', reason: 'still-open' })
+  assert.deepEqual(planFinding({ ...posted, recheck: { status: 'unaddressed', stance: 'kept', text: null } }), { action: 'skip', reason: 'still-open' })
+  assert.equal(planFinding({ ...posted, recheck: { status: 'unaddressed', stance: 'adjusted', text: 'reworded' } }).action, 'comment', 'our position changed: say so')
+  assert.equal(planFinding({ ...posted, recheck: { status: 'partial', text: 'half' } }).action, 'comment', 'partly fixed: what is still missing goes out')
+  assert.deepEqual(planFinding({ ...posted, recheck: { status: 'fixed', text: 'ok' } }), { action: 'fixed' })
+  assert.deepEqual(planFinding({ ...base, recheck: { status: 'unaddressed', text: null } }), { action: 'comment', kind: 'normal' }, 'never posted: it goes out')
 }
 
 console.log('post-head-check: ok')

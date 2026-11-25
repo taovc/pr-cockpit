@@ -41,6 +41,7 @@ export default defineEventHandler(async (event) => {
     patch.optOut = false
     patch.pendingFix = false
     patch.lastFixReviewSha = null
+    patch.postHeld = false // the hold's note is cleared above; a hold left behind would stop auto posting with no sign of why
   }
 
   upsertPrAutomation(d, schema, projectId, prNumber, patch, new Date().toISOString())

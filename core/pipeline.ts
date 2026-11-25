@@ -22,7 +22,7 @@ import { existsSync } from 'node:fs'
 import { engineLevelOf } from './review/engine'
 import { adjustedPatch, replaceFindings } from './review/store'
 import { maxFidNumber } from './review/findingRules'
-import { fixedUncheck, fixingCommit, pathOfLocation } from './review/postGate'
+import { fixedUncheck, fixingCommit, parseLocation, pathOfLocation } from './review/postGate'
 import type { ProviderUsage } from './runs/types'
 import {
   ROUND_EVENT, buildFindingIndex, buildHistoryDoc, computeRoundIntent, loadFindingHistory, writeReviewHistory,
@@ -402,8 +402,8 @@ async function runRecheckJob(ctx: ReviewJobCtx) {
     let failedStages: FailedStage[] = []
     if (ctx.provider !== 'codex' && review?.pipelineMeta && result.newFindings?.length) {
       const raw: RawFinding[] = result.newFindings.map((nf: any, i: number) => {
-        const m = /^(.*?)(?::(\d+))?$/.exec(String(nf.location || ''))
-        return { id: `R${i + 1}`, source: 'recheck' as const, file: m?.[1] ?? '', line: m?.[2] ? Number(m[2]) : null, title: nf.title, scenario: [nf.problem, nf.detail].filter(Boolean).join('\n'), preExisting: false }
+        const loc = parseLocation(nf.location)
+        return { id: `R${i + 1}`, source: 'recheck' as const, file: loc?.path ?? '', line: loc?.line ?? null, title: nf.title, scenario: [nf.problem, nf.detail].filter(Boolean).join('\n'), preExisting: false }
       })
       const contextPath = contextDocPath(ctx.historyRoot, reviewId)
       const c = await classifyFindings({
@@ -415,14 +415,20 @@ async function runRecheckJob(ctx: ReviewJobCtx) {
       recordRunUsage(db, schema, runId, mergeUsage(recheckStageUsages))
       recheckStageUsages.length = 0 // recorded
     }
-    if (!db.select().from(schema.reviews).where(eq(schema.reviews.id, reviewId)).get()) {
-      emit('error', '任务已被删除，丢弃复审结果'); finishRun(db, schema, runId, { status: 'stopped', error: 'task deleted' }); return
-    }
     const byFid = new Map(existing.map((f: any) => [f.fid, f]))
-    const fixedBy = new Map<string, string | null>()
+    const fixedPaths = new Map<string, string | null>() // fid → file of a finding judged fixed
     for (const r of result.rechecks) {
       const old: any = byFid.get(r.fid)
-      if (old && r.status === 'fixed') fixedBy.set(r.fid, await fixingCommit(wt.path, previousHeadSha, wt.headSha, pathOfLocation(old.location)))
+      if (old && r.status === 'fixed') fixedPaths.set(r.fid, pathOfLocation(old.location))
+    }
+    const byPath = new Map<string, string | null>()
+    await Promise.all([...new Set([...fixedPaths.values()].filter((p): p is string => !!p))].map(async (p) => {
+      byPath.set(p, await fixingCommit(wt!.path, previousHeadSha, wt!.headSha, p))
+    }))
+    const fixedBy = new Map([...fixedPaths].map(([fid, p]) => [fid, p ? byPath.get(p) ?? null : null]))
+    // Nothing awaited from here to the write: a task deleted meanwhile is caught by this check.
+    if (!db.select().from(schema.reviews).where(eq(schema.reviews.id, reviewId)).get()) {
+      emit('error', '任务已被删除，丢弃复审结果'); finishRun(db, schema, runId, { status: 'stopped', error: 'task deleted' }); return
     }
     let applied = 0
     let added = 0

@@ -266,6 +266,7 @@ function rcLabel(s: string) { const k = RC[s]; return k ? t(k) : s }
 const SKIP_REASON: Record<string, string> = {
   'replied-no-note': 'review.skipReason.repliedNoNote',
   retracted: 'review.skipReason.retracted',
+  'still-open': 'review.skipReason.stillOpen',
 }
 function skipReasonLabel(s: string) { const k = SKIP_REASON[s]; return k ? t(k) : s }
 

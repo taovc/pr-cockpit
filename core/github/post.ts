@@ -20,6 +20,7 @@ export type PostFinding = {
   fix: string | null
   notes: string | null
   introducedByPr: boolean
+  postedUrl?: string | null // the review it already went out with, if any
   // Verdict of the latest recheck round (null if never rechecked) → decides how this comment gets posted
   recheck: { status: string; stance?: string | null; text: string | null } | null
 }
@@ -33,9 +34,9 @@ export type PostFinding = {
 type Plan =
   | { action: 'comment'; kind: 'normal' | 'partial' | 'reply' }
   | { action: 'fixed' }
-  | { action: 'skip'; reason: 'replied-no-note' | 'retracted' }
+  | { action: 'skip'; reason: 'replied-no-note' | 'retracted' | 'still-open' }
 
-function planFinding(f: PostFinding): Plan {
+export function planFinding(f: PostFinding): Plan {
   // Our stance decides first — withdrawing a finding outranks whatever the author did about it — and only then does
   // the author move decide the wording. Reading a single column for both questions is what let a finding the review
   // had explicitly retracted go out as a live comment.
@@ -47,6 +48,8 @@ function planFinding(f: PostFinding): Plan {
   if (move === 'fixed') return { action: 'fixed' }
   if (move === 'partial') return { action: 'comment', kind: 'partial' }
   if (move === 'replied') return hasNote ? { action: 'comment', kind: 'reply' } : { action: 'skip', reason: 'replied-no-note' }
+  // Already on the PR and nothing changed on either side: it is not posted again (the summary points at the earlier review).
+  if (f.postedUrl && (!move || move === 'unaddressed') && (!stance || stance === 'kept')) return { action: 'skip', reason: 'still-open' }
   return { action: 'comment', kind: 'normal' }
 }
 
@@ -247,7 +250,7 @@ export type AssembledReview = {
   comments: { path: string; line: number; side: 'RIGHT'; body: string }[]
   mode: 'review' | 'comment' | 'mixed'
   // Checked items not posted because of their recheck status (replied without a note / retracted) → shown in the preview so the user doesn't think they were dropped
-  skipped: { fid: string; title: string; reason: 'replied-no-note' | 'retracted' }[]
+  skipped: { fid: string; title: string; reason: 'replied-no-note' | 'retracted' | 'still-open' }[]
   // Items whose English is not trustworthy (translation threw, or still in the source language); fid 'notes' = the preface.
   warnings: { fid: string; kind: 'failed' | 'untranslated'; sample: string }[]
 }
@@ -310,6 +313,12 @@ export async function assembleReview(opts: {
     body += `### Confirmed fixed\n\n`
     for (const line of confirmedFixed) body += `- ${line}\n`
     body += `\n`
+  }
+  // Only alongside something new: a post made of this line alone would repeat itself on every push.
+  const stillOpen = skipped.filter((x) => x.reason === 'still-open')
+  if (stillOpen.length && (body.trim() || comments.length)) {
+    const urls = [...new Set(opts.findings.filter((f) => stillOpen.some((x) => x.fid === f.fid)).map((f) => f.postedUrl).filter(Boolean))]
+    body += `### Still open from the previous review\n\n${stillOpen.length} earlier comment${stillOpen.length === 1 ? ' is' : 's are'} still unresolved and not repeated here${urls.length ? `: ${urls.join(', ')}` : ''}.\n\n`
   }
   if (!body.trim()) body = comments.length ? 'See inline comments.' : ''
 

@@ -8,6 +8,8 @@
 //  - Dedup: one fix per review head (lastFixReviewSha); one post per draft (status=draft→posted).
 //  - Termination: auto fix/recheck only fire while round < max and round increases monotonically → at most max code-writing rounds before it necessarily stops; or it exits earlier through "converged".
 
+import { headMoved } from '../review/postGate'
+
 // Review statuses that mean the task is "running" (the engine skips these too; here as a backstop we treat them as wait)
 export const REVIEW_INFLIGHT = ['queued', 'cloning', 'reviewing', 'recheck_requested', 'rechecking', 'posting']
 // Review statuses that mean "finished, with results we can act on" (error doesn't count — a failed review has no findings to fix, leave it to a human)
@@ -165,7 +167,7 @@ export function decideAutoAction(s: PrSnapshot): AutoDecision {
   if (
     reviewOn && review?.exists && s.reviewMode === 'every_push' &&
     isTerminalReview(review.status) &&
-    s.headSha && review.headSha && s.headSha !== review.headSha
+    headMoved(review.headSha, s.headSha)
   ) {
     return { action: { kind: 'recheck' }, reason: 'author-updated-recheck' }
   }
@@ -175,7 +177,7 @@ export function decideAutoAction(s: PrSnapshot): AutoDecision {
   //    The PR moved since the review (once mode, or a push between ticks): re-review once and leave the post to a human.
   if (reviewOn && review?.exists && review.status === 'draft' && s.reviewFindingsCount > 0) {
     if (s.auto.postHeld) return none('post-held')
-    if (s.headSha && review.headSha && s.headSha !== review.headSha) {
+    if (headMoved(review.headSha, s.headSha)) {
       return { action: { kind: 'recheck' }, patch: { postHeld: true, note: 'post_held' }, reason: 'head-moved-recheck' }
     }
     return { action: { kind: 'post' }, reason: 'auto-post-draft' }
