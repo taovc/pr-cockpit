@@ -45,11 +45,15 @@ export type ScopeReviewResult = {
 const errMsg = (e: unknown) => (e as Error)?.message ?? String(e)
 const ENGINE_FAILED_NOTE = { zh: '引擎这次失败，正确性只由项目视角兜底。', en: 'The engine failed this time; correctness was covered by the project pass only.', fr: 'Le moteur a échoué cette fois ; la justesse n’a été couverte que par le regard projet.' }
 
+// No project effort: the review stages ask for high explicitly (the 5.x models default to medium).
+export const scopeEffort = (effort?: string | null): string => effort || 'high'
+
 // The calls runScopeReview makes; tests replace them.
 export type ScopeDeps = { gather: typeof gatherReviewContext; engine: typeof runEngine; context: typeof runContextPass; classify: typeof classifyFindings }
 
 export async function runScopeReview(o: ScopeReviewOptions, deps: ScopeDeps = { gather: gatherReviewContext, engine: runEngine, context: runContextPass, classify: classifyFindings }): Promise<ScopeReviewResult> {
-  const agent = { cwd: o.cwd, model: o.model, effort: o.effort, projectDirName: o.projectDirName, abort: o.abort, onTool: o.onTool }
+  const effort = scopeEffort(o.effort)
+  const agent = { cwd: o.cwd, model: o.model, effort, projectDirName: o.projectDirName, abort: o.abort, onTool: o.onTool }
 
   o.emit('收集上下文：REVIEW.md、需求原意、CI、项目记忆')
   const ctx = await deps.gather({ repo: o.repo, prNumber: o.prNumber, localPath: o.localPath, cwd: o.cwd, defaultBranch: o.defaultBranch, projectDirName: o.projectDirName, projects: o.projects })
@@ -59,7 +63,7 @@ export async function runScopeReview(o: ScopeReviewOptions, deps: ScopeDeps = { 
   if (o.abort?.signal.aborted) throw new Error('aborted')
   o.emit(`并行：引擎 /code-review ${o.level} + 项目视角`)
   const [engine, context] = await Promise.allSettled([
-    o.stage('engine', () => deps.engine({ cwd: o.cwd, prNumber: o.prNumber, defaultBranch: o.defaultBranch, level: o.level, model: o.model, effort: o.effort, instruction: o.instruction, projectDirName: o.projectDirName, abort: o.abort, onTool: o.onTool })),
+    o.stage('engine', () => deps.engine({ cwd: o.cwd, prNumber: o.prNumber, defaultBranch: o.defaultBranch, level: o.level, model: o.model, effort, instruction: o.instruction, projectDirName: o.projectDirName, abort: o.abort, onTool: o.onTool })),
     o.stage('context', () => deps.context({ ...agent, contextPath, baseBranch: o.defaultBranch, correctnessOnly: false })),
   ])
   if (o.abort?.signal.aborted) throw new Error('aborted')
@@ -109,7 +113,7 @@ export async function classifyFindings(o: {
   cwd: string; model?: string; effort?: string; projectDirName?: string; abort?: AbortController; onTool?: (name: string, info: string) => void
   baseBranch: string; lang?: string; contextPath?: string | null; raw: RawFinding[]; stage: StageRunner; emit: (message: string) => void
 }): Promise<{ rows: FindingRow[]; tier: TierResult; failed: FailedStage[] }> {
-  const agent = { cwd: o.cwd, model: o.model, effort: o.effort, projectDirName: o.projectDirName, abort: o.abort, onTool: o.onTool }
+  const agent = { cwd: o.cwd, model: o.model, effort: scopeEffort(o.effort), projectDirName: o.projectDirName, abort: o.abort, onTool: o.onTool }
   const verdicts = new Map<string, { verdict: VerdictValue; reason: string }>()
   const failed: FailedStage[] = []
   if (o.raw.length) {

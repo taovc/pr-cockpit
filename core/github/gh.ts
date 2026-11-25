@@ -110,6 +110,7 @@ export async function fetchPrMeta(repo: string, prNumber: number): Promise<PrMet
 export async function fetchPrState(
   repo: string,
   prNumber: number,
+  timeoutMs?: number,
 ): Promise<{ state: PrMeta['state']; headSha: string; reviewDecision: string; author: string }> {
   const out = await gh([
     'pr',
@@ -119,7 +120,7 @@ export async function fetchPrState(
     repo,
     '--json',
     'state,isDraft,headRefOid,reviewDecision,author',
-  ])
+  ], timeoutMs)
   const j = JSON.parse(out)
   return { state: normState(j.state, !!j.isDraft), headSha: j.headRefOid ?? '', reviewDecision: j.reviewDecision ?? '', author: j.author?.login ?? '' }
 }
@@ -250,8 +251,8 @@ export async function dismissReview(repo: string, prNumber: number, reviewId: nu
 // Approve a PR as the logged-in gh user. No body: the drawer's button is an approval, not a comment — the review
 // comment has its own path (core/github/post.ts). GitHub approves whatever is at the head when this lands, which is
 // what clicking Approve on github.com does too.
-export async function approvePr(repo: string, prNumber: number): Promise<{ url: string }> {
-  const out = await gh(['api', `repos/${repo}/pulls/${prNumber}/reviews`, '--method', 'POST', '-f', 'event=APPROVE'], 60_000)
+export async function approvePr(repo: string, prNumber: number, commitId?: string): Promise<{ url: string }> {
+  const out = await gh(['api', `repos/${repo}/pulls/${prNumber}/reviews`, '--method', 'POST', '-f', 'event=APPROVE', ...(commitId ? ['-f', `commit_id=${commitId}`] : [])], 60_000)
   const res = JSON.parse(out)
   return { url: res?.html_url || res?._links?.html?.href || '' }
 }

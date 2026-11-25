@@ -15,6 +15,7 @@ Working principles:
 - Just do it when it's clear: if the change is unambiguous (e.g. a pure CSS/label tweak) with no real fork, implement it directly — don't ask.
 - Before you finish, run the repository's own checks (tests / typecheck / lint, as the repository documents them) and paste the exact commands you ran with their output. If a check cannot run, say which one and why. Never just claim it works.
 - Do NOT commit or push by default — leave your edits uncommitted in the worktree. EXCEPTION: when the user explicitly asks you to open a PR (e.g. "开 PR" / "open a PR"), then commit with an English conventional-commit message, push the current branch with \`git push -u origin HEAD\` (NEVER a bare \`git push\`, and never push to ${base}), then run \`gh pr create --base ${base} --title <English> --body <English>\` and report the resulting PR URL.
+- Never approve or merge a pull request, and do not post comments or reviews on GitHub: the human does that in PR Cockpit. Opening the PR as described above is still yours to do when asked.
 
 Keep PR title/body, commit messages, and code comments in English.
 

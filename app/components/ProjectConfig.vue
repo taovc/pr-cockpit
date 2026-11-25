@@ -4,19 +4,22 @@ const props = defineProps<{ project: Project }>()
 const emit = defineEmits<{ changed: []; deleted: [] }>()
 const { t } = useI18n()
 
-type ModelCap = { value: string; displayName: string; description: string; supportsEffort: boolean; effortLevels: string[]; supportsFast?: boolean }
+type ModelCap = { value: string; displayName: string; description: string; supportsEffort: boolean; effortLevels: string[]; supportsFast?: boolean; resolvedModel?: string }
 type Provider = 'claude' | 'codex'
 type ProviderStageId = 'review' | 'fix_chat' | 'recheck' | 'skill_generation' | 'publish_reply'
 type ProviderCapabilityStage = { id: ProviderStageId; claude: boolean; codex: boolean; providerControlled: boolean }
 type CodexSdkStatus = { installed: boolean; authStatus: 'authenticated' | 'missing' | 'unknown'; detail: string; sdkVersion?: string; cliVersion?: string; authMethod?: string; binSource?: string; binPath?: string }
 type AgentCapabilities = {
   models: ModelCap[]
+  defaultModel?: string // what an empty Claude model resolves to (ANTHROPIC_MODEL)
   providers?: { stages: ProviderCapabilityStage[] }
   codex?: CodexSdkStatus
   codexModels?: ModelCap[] // the models actually available to the current account, pulled live from `codex debug models`
   error?: string // returned by the backend when reading the local claude live fails (used by the Claude status card)
 }
 const CODEX_EFFORTS = ['low', 'medium', 'high', 'xhigh'] // fallback levels for when the model catalog is unavailable
+// Claude: the global default and models missing from the catalog; the CLI steps an unsupported level down
+const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
 
 // Form (project info + model)
 const form = reactive({
@@ -39,10 +42,14 @@ const msg = ref('')
 const refreshingCaps = ref(false)
 
 const { data: caps, pending: capsPending } = useFetch<AgentCapabilities>('/api/agent/capabilities')
-const modelOptions = computed<ModelCap[]>(() => [
-  { value: '', displayName: t('config.globalDefault'), description: t('config.useEnvDefault'), supportsEffort: false, effortLevels: [] },
-  ...(caps.value?.models ?? []),
-])
+const modelOptions = computed<ModelCap[]>(() => {
+  const dflt = caps.value?.defaultModel || 'sonnet'
+  const resolved = (caps.value?.models ?? []).find((m) => m.value === dflt)?.resolvedModel
+  return [
+    { value: '', displayName: `${t('config.globalDefault')} (${dflt})`, description: t('config.useEnvDefault'), supportsEffort: true, effortLevels: CLAUDE_EFFORTS, ...(resolved ? { resolvedModel: resolved } : {}) },
+    ...(caps.value?.models ?? []),
+  ]
+})
 const capabilityStages = computed(() => caps.value?.providers?.stages ?? [])
 const codexStatus = computed<CodexSdkStatus | null>(() => caps.value?.codex ?? null)
 // Claude status: the local claude can list models and there is no error = available (shown symmetrically with the Codex status card).
@@ -75,8 +82,8 @@ const effortOptions = computed(() => {
   const list = form.provider === 'codex' ? (caps.value?.codexModels ?? []) : (caps.value?.models ?? [])
   const m = list.find((x) => x.value === form.model)
   if (m) return m.supportsEffort ? m.effortLevels : []
-  // "Global default" selected (no specific model): codex uses every level available in the current catalog, claude shows none
-  return form.provider === 'codex' ? defaultCodexEfforts.value : []
+  // "Global default" selected (no specific model): codex uses every level available in the current catalog, claude all five
+  return form.provider === 'codex' ? defaultCodexEfforts.value : CLAUDE_EFFORTS
 })
 watch(() => form.model, () => { if (!effortOptions.value.includes(form.effort)) form.effort = '' })
 watch(() => form.provider, () => {
@@ -512,6 +519,7 @@ function codexAuthClass(status: CodexSdkStatus | null) {
           <span class="w-3 shrink-0 text-highlighted text-sm leading-6">{{ form.model === m.value ? '✓' : '' }}</span>
           <span class="min-w-0">
             <span class="text-sm font-medium">{{ m.displayName }}</span>
+            <span v-if="m.resolvedModel && m.resolvedModel !== m.value" class="ml-2 font-mono text-[10px] text-dimmed">{{ m.resolvedModel }}</span>
             <span v-if="m.supportsEffort" class="ml-2 text-[10px] text-dimmed">effort: {{ m.effortLevels.join('/') }}</span>
             <span class="block text-xs text-dimmed mt-0.5">{{ m.description || (m.value ? '' : $t('config.inheritEnvDefault')) }}</span>
           </span>

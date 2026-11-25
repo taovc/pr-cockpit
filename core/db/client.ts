@@ -161,6 +161,7 @@ function ensureColumns(sqlite: Database.Database) {
     ['runs', 'busy_action', 'TEXT'],
     ['runs', 'forked_from', 'TEXT'],
     ['runs', 'cli_version', 'TEXT'],
+    ['runs', 'model_actual', 'TEXT'],
     ['runs', 'review_rules', 'TEXT'],
     ['findings', 'tier', 'TEXT'],
     ['findings', 'evidence', 'TEXT'],
@@ -173,6 +174,8 @@ function ensureColumns(sqlite: Database.Database) {
     ['projects', 'review_engine_level', "TEXT NOT NULL DEFAULT 'high'"],
     ['projects', 'verify_command', 'TEXT'],
     ['finding_labels', 'repo', 'TEXT'],
+    ['finding_rechecks', 'fixed_by', 'TEXT'],
+    ['pr_automation', 'post_held', 'INTEGER NOT NULL DEFAULT 0'],
     ['finding_labels', 'pr_number', 'INTEGER'],
     ['run_turns', 'message_uuid', 'TEXT'],
   ]

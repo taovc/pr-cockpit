@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Scripted stand-in for `codex app-server` (JSON-RPC over stdio) for tests/codex-host.test.ts. The turn text drives
-// the scenario: "run-command <cmd>" (approval round trip unless approvalPolicy is never), "ask-question"
+// the scenario: "run-command <cmd>" (approval round trip unless approvalPolicy is never), "mcp-call <server> <tool> [json]"
+// (an MCP tool call item, no approval), "ask-question"
 // (requestUserInput), "slow" (waits for turn/interrupt), "fail" (failed turn), "crash" (process dies mid-turn),
 // anything else = a commentary message followed by a final answer.
 import { createInterface } from 'node:readline'
@@ -41,6 +42,7 @@ async function runTurn(threadId, turnId, text, params) {
   let status = 'completed'
   let error = null
   const cmd = /run-command (.+)$/m.exec(text)
+  const mcp = /mcp-call (\S+) (\S+)(?: (.+))?$/m.exec(text)
   if (/crash/.test(text)) { await sleep(50); process.exit(3) }
   if (/slow/.test(text)) {
     for (let i = 0; i < 200 && !th.interrupted; i++) await sleep(25)
@@ -62,6 +64,15 @@ async function runTurn(threadId, turnId, text, params) {
     await sleep(30)
     if (th.interrupted) status = 'interrupted'
     else say(`ran: ${decision}`, 'final_answer')
+  } else if (mcp) {
+    const id = `mcp-${++itemN}`
+    const item = { type: 'mcpToolCall', id, server: mcp[1], tool: mcp[2], arguments: mcp[3] ? JSON.parse(mcp[3]) : {} }
+    notify('item/started', { threadId, turnId, item: { ...item, status: 'inProgress' } })
+    await sleep(30)
+    notify('item/completed', { threadId, turnId, item: { ...item, status: 'completed', result: { content: [] } } })
+    await sleep(30)
+    if (th.interrupted) status = 'interrupted'
+    else say('mcp done', 'final_answer')
   } else if (/ask-question/.test(text)) {
     const { id: rid, promise } = serverRequest('item/tool/requestUserInput', { threadId, turnId, itemId: `q-${++itemN}`, questions: [{ id: 'q1', header: 'Colour', question: 'Favourite colour?', isOther: false, isSecret: false, options: [{ label: 'Red', description: '' }, { label: 'Blue', description: '' }] }], isBlocking: true, autoResolutionMs: null })
     const r = await promise

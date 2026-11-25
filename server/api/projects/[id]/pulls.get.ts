@@ -5,6 +5,7 @@ import { schema } from '~core/db/client'
 import { listPulls, getCurrentUserLogin } from '~core/github/gh'
 import { getProjectAutomation, getPrAutomationMap, pullStatusKey } from '~core/automation/state'
 import { effectiveReviewOn, effectiveFixOnGuarded } from '~core/automation/decide'
+import { headMoved } from '~core/review/postGate'
 
 const WORKTREE_STALE_DAYS = 30
 
@@ -87,7 +88,7 @@ export default defineEventHandler(async (event) => {
       // as the drawer / refresh).
       // Side effect: after the first review the dot lights up on an author push even before any
       // comment was posted — which is exactly what "there are changes I haven't seen" means.
-      const authorUpdated = !!task?.headSha && !!p.headSha && p.headSha !== task.headSha
+      const authorUpdated = headMoved(task?.headSha, p.headSha)
       // Reviewer updated: after I pushed a fix the PR's review count grew = somebody submitted another
       // review.
       // Note: reviewsCount includes bot/CI reviews, so a CI auto-review after the push counts too

@@ -9,7 +9,7 @@ import os from 'node:os'
 // node_modules/.pnpm (production: nitro bundles only JS) ④ the auto-updating PATH CLI, logged as unpinned.
 
 // The CLI version bundled with the pinned SDK; a test keeps it in step with package.json.
-export const EXPECTED_CLAUDE_CODE_VERSION = '2.1.310'
+export const EXPECTED_CLAUDE_CODE_VERSION = '2.1.331'
 
 const PLATFORM_PKG = `claude-agent-sdk-${process.platform}-${process.arch}`
 

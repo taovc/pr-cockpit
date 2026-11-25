@@ -11,7 +11,9 @@ import { adjustedPatch, replaceFindings, snapshotRatings } from '../core/review/
 import { ratingData } from '../core/metrics/queries'
 import { hasAiFindings, maxFidNumber } from '../core/review/findingRules'
 import { contextDocPath } from '../core/review/context'
-import { runScopeReview, withFailedStages, type ScopeDeps } from '../core/review/scope'
+import { runScopeReview, scopeEffort, withFailedStages, type ScopeDeps } from '../core/review/scope'
+import { reviewRunEffort } from '../core/pipeline'
+import { checkInput, tierInput } from '../core/review/agents'
 import { getDb, schema } from '../core/db/client'
 import { eq } from 'drizzle-orm'
 
@@ -46,6 +48,43 @@ assert.equal(forgotten.tier, 'later', 'a finding the tier pass left out is kept,
 assert.equal(forgotten.introducedByPr, false)
 assert.equal(forgotten.verifyStatus, 'unsure', 'no verdict = unsure')
 assert.deepEqual(rows.map((r) => r.tier), ['later', 'later', null], 'sorted must → decide → later → edge → refuted')
+
+// ── the engine's labels (CLI 2.1.328+): pre-existing sets the flag, the label is a tier hint only, the suggested fix fills an empty fix ──
+{
+  const labelled = fromEngine([
+    { file: 'a.ts', line: 1, summary: 'old bug', failure_scenario: 's', label: 'pre-existing', suggested_fix: 'guard x' },
+    { file: 'b.ts', line: 2, summary: 'naming', failure_scenario: '', label: 'nit', suggested_fix: '' },
+    { file: 'c.ts', line: 3, summary: 'crash', failure_scenario: 'y', label: 'important', suggested_fix: 'check y' },
+    { file: 'd.ts', line: null, summary: 'unlabelled', failure_scenario: '', label: null, suggested_fix: '' },
+  ])
+  assert.deepEqual(labelled.map((f) => [f.preExisting, f.label]), [[true, 'pre-existing'], [false, 'nit'], [false, 'important'], [false, null]])
+  const withV = labelled.map((f) => ({ ...f, verdict: 'confirmed', verdictReason: '' }))
+  const tierText = tierInput(withV)
+  assert.match(tierText, /E2 \(engine; engine label: nit; check: confirmed\)/, 'the tier pass sees the label as a hint')
+  assert.match(tierText, /E1 \(engine, pre-existing; engine label: pre-existing;/)
+  assert.doesNotMatch(tierText.split('\n').find((l) => l.startsWith('- E4'))!, /engine label/, 'no label, no hint')
+  const checkText = checkInput(labelled)
+  assert.doesNotMatch(checkText, /engine label|\bnit\b|important|pre-existing|guard x|check y/, 'the check sees location, claim and scenario only')
+  const fixed = assembleFindings(labelled, new Map(), {
+    conclusion: '', notDone: '', reviewMdSuggestion: '',
+    items: [
+      { ids: ['E1'], tier: 'later', severity: 'Low', evidence: 'inferred', preExisting: true, location: '', title: 'old', problem: '', detail: '', fix: '' },
+      { ids: ['E3'], tier: 'must', severity: 'High', evidence: 'inferred', preExisting: false, location: '', title: 'crash', problem: '', detail: '', fix: 'tier fix' },
+    ],
+  })
+  assert.equal(fixed.find((r) => r.title === 'old')!.fix, 'guard x', "an empty tier fix takes the engine's suggestion")
+  assert.equal(fixed.find((r) => r.title === 'crash')!.fix, 'tier fix', "the tier pass's own fix wins")
+  assert.equal(fixed.find((r) => r.title === 'naming')!.fix, null, 'left out by the tier pass, no suggestion')
+  assert.equal(fromEngine([{ file: 'a.ts', line: 1, summary: 's', failure_scenario: '' } as any])[0]!.preExisting, false, 'an older CLI without labels: as before')
+}
+
+// ── empty project effort: the scope-review stages run at high; an explicit effort wins ──
+assert.equal(scopeEffort(''), 'high')
+assert.equal(scopeEffort(undefined), 'high')
+assert.equal(scopeEffort('medium'), 'medium')
+assert.equal(reviewRunEffort('claude', ''), 'high', "a Claude review's own run row records the stages' effort")
+assert.equal(reviewRunEffort(undefined, ''), 'high')
+assert.equal(reviewRunEffort('codex', ''), '', 'the Codex single-agent review runs at the model default')
 
 // ── REVIEW.md: the clone's copy from the base branch, then plain files up to home ──
 const home = mkdtempSync(join(tmpdir(), 'rmd-home-'))
@@ -225,6 +264,15 @@ assert.equal(isAutomatable({ tier: 'must', source: 'engine', verifyStatus: 'unsu
   const stopped = new AbortController(); stopped.abort()
   await assert.rejects(runScopeReview(opts(stopped), deps({})), /aborted/)
   assert.deepEqual(calls, [], 'stopped before the stages: none starts')
+
+  const efforts: unknown[] = []
+  const base = deps({})
+  const spy = { ...base, engine: (async (a: any) => { efforts.push(a.effort); return base.engine(a) }) as any, context: (async (a: any) => { efforts.push(a.effort); return base.context(a) }) as any, classify: (async (a: any) => { efforts.push(a.effort); return base.classify(a) }) as any }
+  await runScopeReview({ ...opts(), effort: '' }, spy)
+  assert.deepEqual(efforts, ['high', 'high', 'high'], 'no project effort: every stage is asked for high explicitly')
+  efforts.length = 0
+  await runScopeReview({ ...opts(), effort: 'low' }, spy)
+  assert.deepEqual(efforts, ['low', 'low', 'low'])
 }
 
 // The engine's transcript is removed after the review; other sessions in the same directory stay.

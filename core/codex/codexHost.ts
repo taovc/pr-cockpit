@@ -8,7 +8,7 @@ import { helperPolicy, reviewPolicy, sessionPolicy, type CodexPolicy } from './p
 import { codexSessionContract, codexUltracodePrompt } from './prompts'
 import { toCodexEffort } from '../agent/codexAgent'
 import { codexUltracodeEffort, getCodexModels } from '../agent/codexModels'
-import { shouldBlockCodexCommand } from '../agent/commandGuard'
+import { classifyGithubCommand, classifyMcpToolCall, shouldBlockCodexCommand } from '../agent/commandGuard'
 import { usageFromCodexTurn } from '../agent/usage'
 import { answerPending, insertPromptRow, resolvePromptRow, type PendingPrompt } from '../host/permissions'
 import { makeRunEmitter, setRunStatus } from '../host/recorder'
@@ -66,7 +66,7 @@ type LiveThread = {
 function policyFor(spec: RunSpec): CodexPolicy {
   if (spec.kind === 'review') return reviewPolicy({ allowNetwork: !!spec.allowNetwork })
   if (spec.kind === 'helper') return helperPolicy()
-  return sessionPolicy({ cwd: spec.cwd, permissionMode: spec.permissionMode, allowDanger: spec.allowDanger })
+  return sessionPolicy({ cwd: spec.cwd, permissionMode: spec.permissionMode, allowDanger: spec.allowDanger, guardScope: spec.guardScope })
 }
 
 function developerInstructions(spec: RunSpec): string {
@@ -201,6 +201,13 @@ class CodexHost implements SessionHost {
       live.turn.error = message
       live.emit({ t: 'permission_denied', toolName: e.name, message })
       void this.rpcInterrupt(live)
+    } else if (e.t === 'tool_use' && e.name.startsWith('mcp__') && live.turn && (live.spec.guardScope === 'fix' || live.spec.guardScope === 'feature')
+      && classifyMcpToolCall(e.name, e.input) === 'approve-merge') {
+      // Codex sends no approval for MCP calls: the turn is stopped as soon as the call shows up, which may be too late.
+      const message = `MCP tool ${e.name} looks like approving or merging a pull request; that is done by the human in PR Cockpit`
+      live.turn.error = message
+      live.emit({ t: 'permission_denied', toolName: e.name, message })
+      void this.rpcInterrupt(live)
     }
     switch (e.t) {
       case 'text_delta':
@@ -301,6 +308,13 @@ class CodexHost implements SessionHost {
         if (d === 'decline') live.emit({ t: 'permission_denied', toolName: 'Bash', message: `declined before execution by the read-only policy: ${command.slice(0, 200)}` })
         return
       }
+      const scope = live.spec.guardScope
+      if (scope && scope !== 'global' && classifyGithubCommand(command) === 'approve-merge') {
+        rpc.respond(id, { decision: decline })
+        live.emit({ t: 'permission_denied', toolName: 'Bash', message: `declined before execution: approving or merging a pull request is done by the human in PR Cockpit: ${command.slice(0, 200)}` })
+        return
+      }
+      if (live.policy.screenOnly) { rpc.respond(id, { decision: accept(false) }); return }
       const amendment = Array.isArray(params.proposedExecpolicyAmendment) ? params.proposedExecpolicyAmendment as string[] : null
       this.park(live, id, method, 'tool', 'Bash', { command, cwd: params.cwd ?? undefined, ...(params.reason ? { description: String(params.reason) } : {}) }, amendment ? { amendment } : {}, (r) => {
         if (r.behavior !== 'allow') return { decision: decline }
@@ -316,7 +330,7 @@ class CodexHost implements SessionHost {
       const paths = (live.mapper.pathsOf(String(params.itemId ?? '')).length ? live.mapper.pathsOf(String(params.itemId ?? '')) : fromReq).join(', ')
       if (auto) { rpc.respond(id, { decision: decline }); live.emit({ t: 'permission_denied', toolName: 'ApplyPatch', message: `file change declined by the read-only policy: ${paths}` }); return }
       const mode = live.spec.permissionMode ?? 'default'
-      if (mode === 'acceptEdits' || mode === 'bypassPermissions') { rpc.respond(id, { decision: accept(false) }); return }
+      if (mode === 'acceptEdits' || mode === 'bypassPermissions' || live.policy.screenOnly) { rpc.respond(id, { decision: accept(false) }); return }
       this.park(live, id, method, 'tool', 'ApplyPatch', { file_path: paths, ...(params.reason ? { description: String(params.reason) } : {}) }, {}, (r) => ({ decision: r.behavior === 'allow' ? accept(r.decisionClassification === 'user_permanent') : decline }), params.reason ? String(params.reason) : undefined)
       return
     }

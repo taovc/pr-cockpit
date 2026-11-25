@@ -15,18 +15,22 @@ import type { ProviderUsage } from '../runs/types'
 export const ENGINE_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 export type EngineLevel = (typeof ENGINE_LEVELS)[number]
 export const engineLevelOf = (v: unknown): EngineLevel => (ENGINE_LEVELS as readonly string[]).includes(String(v)) ? (v as EngineLevel) : 'high'
+export const ENGINE_LABELS = ['important', 'pre-existing', 'nit'] as const
 
 export const EngineFindingSchema = z.object({
   file: z.string(),
   line: z.number().int().nullable().default(null),
   summary: z.string(),
   failure_scenario: z.string().default(''),
+  label: z.enum(ENGINE_LABELS).nullable().default(null),
+  suggested_fix: z.string().default(''),
 })
 export const EngineResultSchema = z.object({ findings: z.array(EngineFindingSchema).default([]) })
 export type EngineFinding = z.infer<typeof EngineFindingSchema>
+export type EngineLabel = (typeof ENGINE_LABELS)[number]
 
 const ENGINE_TIMEOUT_MS = 15 * 60_000
-const STRUCTURE_TURN = 'The /code-review run has finished. Return every finding from its report above through the structured output: file, line (null if none), summary, failure_scenario — the same findings, same order, nothing added or dropped, and do not review anything yourself. An empty list if the report found nothing.'
+const STRUCTURE_TURN = 'The /code-review run has finished. Return every finding from its report above through the structured output: file, line (null if none), summary, failure_scenario, label (the tag the report gave it: important, pre-existing or nit; null if it has none), suggested_fix (the fix the report suggested, empty if none) — the same findings, same order, nothing added or dropped, and do not review anything yourself. An empty list if the report found nothing.'
 const TASK_DONE = new Set(['completed', 'failed', 'stopped', 'killed', 'cancelled'])
 
 // Fires once: after the first turn's result, when every task the session started has finished.

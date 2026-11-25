@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { schema } from '~core/db/client'
 import { fetchPrState } from '~core/github/gh'
+import { headMoved } from '~core/review/postGate'
 
 // Refresh the PR's real state + head sha.
 // If a comment was already posted (last_post_sha), compare against the current head → tell the frontend
@@ -26,7 +27,7 @@ export default defineEventHandler(async (event) => {
   // pulls.get list does: after the first review, any further push by the author flags "new changes I have not
   // seen". Note: do not overwrite review.headSha with the live head, or the baseline is lost and the line
   // anchors of posted comments drift.
-  const authorUpdated = !!review.headSha && !!liveHead && liveHead !== review.headSha
+  const authorUpdated = headMoved(review.headSha, liveHead)
 
   d.update(schema.reviews)
     // Also backfill an empty author (older rows missed it at creation time → the list shows "-")

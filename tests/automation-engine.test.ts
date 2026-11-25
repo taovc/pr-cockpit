@@ -362,6 +362,8 @@ for (const [label, rows] of [
   ]
   rows.forEach((r, i) => d.insert(schema.findings).values({ ...scope, ...r, sortOrder: i } as any).run())
   d.insert(schema.findings).values({ id: 'legacy', reviewId: 'R1', fid: 'F5', severity: 'Low', title: 'x', introducedByPr: true, checked: true, checkedBy: 'auto', sortOrder: 9, createdAt: now() } as any).run()
+  d.insert(schema.findings).values({ ...scope, id: 'settled', fid: 'F6', severity: 'High', checked: false, checkedBy: null, rating: null, sortOrder: 10 } as any).run()
+  d.insert(schema.findingRechecks).values({ id: 'rc-settled', findingId: 'settled', round: 1, status: 'fixed', at: now() } as any).run()
   assert.deepEqual(prepareUnattendedPost(d, schema, 'R1', now()), { ticked: 2, unticked: 2 })
   const got = Object.fromEntries((d.select().from(schema.findings).where(eq(schema.findings.reviewId, 'R1')).all() as any[]).map((f) => [f.id, f]))
   assert.equal(got['high'].checked, true)
@@ -371,6 +373,7 @@ for (const [label, rows] of [
   assert.equal(got['low-human'].checked, true, "a human's tick is the human's decision")
   assert.equal(got['low-human'].checkedBy, 'human')
   assert.equal(got['legacy'].checked, true, 'legacy findings keep their rule')
+  assert.equal(got['settled'].checked, false, 'fixed by a re-review before it was ever posted: not ticked back on')
   console.log('automation-engine unattended-post-unticks: ok')
 }
 

@@ -30,6 +30,7 @@ export type ProviderUsage = {
   numTurns?: number
   sessionId?: string | null // native session / thread id observed on the stream
   cliVersion?: string | null // Claude Code CLI version that ran it (from system/init)
+  modelActual?: string | null // the model system/init announced
 }
 
 export function emptyUsage(): ProviderUsage {
