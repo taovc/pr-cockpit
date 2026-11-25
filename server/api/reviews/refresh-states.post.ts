@@ -2,6 +2,7 @@ import { eq, inArray } from 'drizzle-orm'
 import { z } from 'zod'
 import { schema } from '~core/db/client'
 import { fetchPrState } from '~core/github/gh'
+import { headMoved } from '~core/review/postGate'
 
 // Bulk-refresh the GitHub-side state of several tasks (prState / reviewDecision / authorUpdated).
 // The frontend polls this roughly every 60s, passing only the ids of the current page's unfinished (not merged/closed) tasks.
@@ -33,7 +34,7 @@ export default defineEventHandler(async (event) => {
       try {
         const { state, headSha: liveHead, reviewDecision, author } = await fetchPrState(project.repo, review.prNumber)
         // Same baseline as the single-task refresh and the pulls.get list: compare against "the sha the last review/recheck saw" (headSha); gating uses headSha too
-        const authorUpdated = !!review.headSha && !!liveHead && liveHead !== review.headSha
+        const authorUpdated = headMoved(review.headSha, liveHead)
         d.update(schema.reviews)
           // Also backfill an empty author (older records didn't store it at creation time → the list shows "-")
           .set({ prState: state, reviewDecision: reviewDecision || null, authorUpdated, updatedAt: new Date().toISOString(), ...(review.author ? {} : { author: author || null }) })

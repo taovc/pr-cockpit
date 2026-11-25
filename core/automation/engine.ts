@@ -146,6 +146,7 @@ async function evaluatePr(db: any, schema: any, deps: EngineDeps, project: any, 
       lastFixReviewSha: row?.lastFixReviewSha ?? null,
       pendingFix,
       optOut: row?.optOut ?? false,
+      postHeld: row?.postHeld ?? false,
       note: row?.note ?? null,
     },
   }
@@ -154,7 +155,7 @@ async function evaluatePr(db: any, schema: any, deps: EngineDeps, project: any, 
   if (d.patch) {
     upsertPrAutomation(db, schema, project.id, p.number, d.patch, now)
     // Terminal reasons go into the timeline (converged / can't fix / fix errored)
-    if (d.patch.note && ['converged', 'cant_fix', 'fix_error'].includes(d.patch.note)) rec(d.patch.note)
+    if (d.patch.note && ['converged', 'cant_fix', 'fix_error', 'post_held'].includes(d.patch.note)) rec(d.patch.note)
   }
   if (d.action.kind === 'cap') {
     rec('capped', `${snap.auto.round}/${snap.maxRounds}`)

@@ -197,7 +197,10 @@
       "failed": "Approval failed",
       "own_pr": "GitHub does not let you approve your own pull request",
       "not_open": "This PR is no longer open — reopen the drawer to refresh",
-      "pending_review": "You have an unsubmitted review on GitHub — submit or discard it first"
+      "pending_review": "You have an unsubmitted review on GitHub — submit or discard it first",
+      "headMoved": "New commits since you looked ({sha})",
+      "anyway": "Approve anyway",
+      "reload": "Reload"
     },
     "dismiss": {
       "button": "Withdraw approval",
@@ -493,6 +496,11 @@
     "close": "Close",
     "publishing": "Publishing…",
     "confirmPublish": "Confirm publish to GitHub",
+    "publishAnyway": "I checked — post anyway",
+    "headMoved": "The PR has new commits since the review ({sha}). Re-review first: fixed findings get unticked and their fixing commit is recorded.",
+    "headUnknown": "Could not read the PR's latest commit ({error}); post only if you are sure.",
+    "recheckFirst": "Re-review first",
+    "fixedBy": "fixed in {sha}",
     "published": "Published: {url}",
     "triggerFailed": "Trigger failed",
     "previewFailed": "Preview failed",
@@ -528,7 +536,8 @@
     "langWarnLeak": "still in the source language",
     "skipReason": {
       "repliedNoNote": "reply only · no response note",
-      "retracted": "retracted"
+      "retracted": "retracted",
+      "stillOpen": "already posted and still unresolved — not repeated"
     },
     "deleteBtn": "Delete task",
     "deleteTitle": "Delete this review task (local only; GitHub comments stay)",
@@ -699,7 +708,8 @@
       "deleted": "Off (task deleted)",
       "post_error": "Post failed — stopped",
       "push_error": "Push failed — stopped",
-      "fix_unverified": "Fixed — needs re-review"
+      "fix_unverified": "Fixed — needs re-review",
+      "post_held": "PR moved · re-reviewed, waiting for you to post (auto-fix waits too)"
     },
     "tab": "Workflow",
     "noEvents": "No automation activity yet",
@@ -716,7 +726,8 @@
       "post_error": "Post failed: {info}",
       "push_error": "Push failed: {info}",
       "fix_unverified": "Fixed — needs manual re-review (once mode)",
-      "cooldown": "Cooling down — starts in {info} min"
+      "cooldown": "Cooling down — starts in {info} min",
+      "post_held": "The PR moved after the review: one re-review queued, posting is left to you; auto-fix waits until you post"
     },
     "modeLabel": "Review mode",
     "fixAuthorHint": "Empty author = only your own PRs are auto-fixed. Add authors to auto-fix others' PRs (runs an agent + pushes).",

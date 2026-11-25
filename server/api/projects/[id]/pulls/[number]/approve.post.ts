@@ -1,6 +1,7 @@
 import { and, desc, eq, isNotNull } from 'drizzle-orm'
 import { schema } from '~core/db/client'
 import { approvePr, fetchPrState, fetchReviewsCount, getCurrentUserLogin, isPendingReviewClash } from '~core/github/gh'
+import { headMoved } from '~core/review/postGate'
 
 // Approve the PR as the logged-in gh user (the button in the PR drawer header). Outward-facing and visible to the
 // whole repo, so the refusals GitHub would answer with anyway are checked here first and named: a PR that is merged or
@@ -11,6 +12,12 @@ export default defineEventHandler(async (event) => {
   const projectId = getRouterParam(event, 'id')!
   const prNumber = Number(getRouterParam(event, 'number'))
   if (!Number.isInteger(prNumber) || prNumber <= 0) throw createError({ statusCode: 400, statusMessage: 'PR 编号不合法', data: { reason: 'bad_number' } })
+
+  // An approval covers one commit: the one the drawer showed. A PR that moved since then is refused unless the user
+  // approves anyway (force), and the approval names the commit it covers.
+  const body = (await readBody(event).catch(() => null)) as { headSha?: unknown; force?: unknown } | null
+  const seenHead = typeof body?.headSha === 'string' && /^[0-9a-f]{7,40}$/i.test(body.headSha) ? body.headSha : null
+  const force = body?.force === true
 
   const d = db()
   const project = d.select().from(schema.projects).where(eq(schema.projects.id, projectId)).get()
@@ -36,9 +43,13 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 422, statusMessage: 'GitHub 不允许批准自己提交的 PR', data: { reason: 'own_pr' } })
   }
 
+  if (!force && headMoved(seenHead, state.headSha)) {
+    throw createError({ statusCode: 409, statusMessage: `PR 在你查看后有新提交（${state.headSha.slice(0, 7)}）`, data: { reason: 'head_moved', current: state.headSha } })
+  }
+
   let url = ''
   try {
-    ;({ url } = await approvePr(project.repo, prNumber))
+    ;({ url } = await approvePr(project.repo, prNumber, state.headSha || undefined))
   } catch (e: any) {
     const detail: string = e?.stderr?.toString?.() || e?.message || String(e)
     // The author check above needs a login on both sides; when gh cannot supply one, GitHub still answers this.

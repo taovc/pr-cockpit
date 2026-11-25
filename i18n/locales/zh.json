@@ -197,7 +197,10 @@
       "failed": "批准失败",
       "own_pr": "GitHub 不允许批准自己提交的 PR",
       "not_open": "PR 已经不是 open 状态，刷新后再看",
-      "pending_review": "你在 GitHub 上有一份未提交的 review，先提交或丢弃它再批准"
+      "pending_review": "你在 GitHub 上有一份未提交的 review，先提交或丢弃它再批准",
+      "headMoved": "PR 在你查看后有新提交（{sha}）",
+      "anyway": "仍然批准",
+      "reload": "刷新看看"
     },
     "dismiss": {
       "button": "取消批准",
@@ -493,6 +496,11 @@
     "close": "关闭",
     "publishing": "发布中…",
     "confirmPublish": "确认发布到 GitHub",
+    "publishAnyway": "我看过了，仍然发布",
+    "headMoved": "PR 在审核后有新提交（{sha}）。建议先复审：已修的条目会自动取消勾选，并记下修复的 commit。",
+    "headUnknown": "无法确认 PR 的最新提交（{error}），确认无误再发布。",
+    "recheckFirst": "先复审",
+    "fixedBy": "修复于 {sha}",
     "published": "已发布：{url}",
     "triggerFailed": "触发失败",
     "previewFailed": "预览失败",
@@ -528,7 +536,8 @@
     "langWarnLeak": "仍带原文",
     "skipReason": {
       "repliedNoNote": "仅回复·未写回应 note",
-      "retracted": "已撤回"
+      "retracted": "已撤回",
+      "stillOpen": "已经发过、作者还没处理，这次不重复发"
     },
     "deleteBtn": "删除任务",
     "deleteTitle": "删除审核任务（仅本地，GitHub 评论保留）",
@@ -699,7 +708,8 @@
       "deleted": "已关闭（任务已删）",
       "post_error": "发评论失败 · 已停",
       "push_error": "上传失败 · 已停",
-      "fix_unverified": "已修复 · 待人工复核"
+      "fix_unverified": "已修复 · 待人工复核",
+      "post_held": "PR 有新提交 · 已复审，待你手动发布（自动修复也暂停）"
     },
     "tab": "自动化",
     "noEvents": "暂无自动化记录",
@@ -716,7 +726,8 @@
       "post_error": "发评论失败：{info}",
       "push_error": "上传失败：{info}",
       "fix_unverified": "已修复，待人工复核（once 模式不自动复查）",
-      "cooldown": "冷却中，{info} 分钟后开始"
+      "cooldown": "冷却中，{info} 分钟后开始",
+      "post_held": "PR 在审核后有新提交：已排一次复审，评论留给你手动发；发布前自动修复也暂停"
     },
     "modeLabel": "审核模式",
     "fixAuthorHint": "留空 = 只自动修复你自己的 PR。要对他人 PR 自动修复请显式选作者（会跑 agent 并自动 push）。",

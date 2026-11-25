@@ -4,7 +4,8 @@ import { and, asc, eq, inArray } from 'drizzle-orm'
 import { z } from 'zod'
 import { schema } from '~core/db/client'
 import { assembleReview, languageHold, postReview, type PostFinding } from '~core/github/post'
-import { fetchPrDiff } from '~core/github/gh'
+import { fetchPrDiff, fetchPrState } from '~core/github/gh'
+import { headMoved } from '~core/review/postGate'
 
 // Publish the review comment. dryRun=true only returns the assembled preview (the default); only dryRun=false actually posts to GitHub.
 // The preview is cached by an "input signature": if the signature is unchanged it is reused as-is without re-translating; publishing reuses the preview too, so it never runs twice.
@@ -12,11 +13,12 @@ const Body = z.object({
   dryRun: z.boolean().default(true).catch(true),
   force: z.boolean().default(false).catch(false),
   acceptLangWarnings: z.boolean().default(false).catch(false), // set by the UI after the user saw the preview
+  ignoreHeadMove: z.boolean().default(false).catch(false), // the user chose to post although the PR moved since the review
 })
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')!
-  const { dryRun, force, acceptLangWarnings } = Body.parse((await readBody(event)) || {})
+  const { dryRun, force, acceptLangWarnings, ignoreHeadMove } = Body.parse((await readBody(event)) || {})
   const d = db()
 
   const review = d.select().from(schema.reviews).where(eq(schema.reviews.id, id)).get()
@@ -50,6 +52,24 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
+    // The comment answers the code the review saw. A PR that moved since then needs a re-review first (fixed findings
+    // are unticked by it), unless the user posts anyway; a head that cannot be read blocks an unconfirmed post.
+    // Read with a timeout: this runs inside the 'posting' claim, and a hung gh call would pin the row there.
+    const reviewed = review.headSha || null
+    const readHead = async () => {
+      let current: string | null = null
+      let error: string | null = null
+      try { current = (await fetchPrState(project.repo, review.prNumber, 30_000)).headSha || null } catch (e) { error = (e as Error).message }
+      return { reviewed, current, moved: headMoved(reviewed, current), error }
+    }
+    const refuseStale = (head: Awaited<ReturnType<typeof readHead>>) => {
+      if (dryRun || ignoreHeadMove) return
+      if (head.moved) throw createError({ statusCode: 409, statusMessage: `PR 在审核后有新提交（${String(head.current).slice(0, 7)}），请先复审再发布`, data: { headMoved: true, head } })
+      if (head.error) throw createError({ statusCode: 502, statusMessage: `无法确认 PR 的最新提交，未发布：${head.error}`, data: { headUnknown: true, head } })
+    }
+    let head = await readHead()
+    refuseStale(head)
+
     const checked = d
       .select()
       .from(schema.findings)
@@ -69,11 +89,13 @@ export default defineEventHandler(async (event) => {
       if (!cur || rc.round > cur.round) latestRc.set(rc.findingId, { status: rc.status, stance: rc.stance ?? null, text: rc.text, round: rc.round })
     }
 
+    const postUrls = new Map((d.select().from(schema.posts).where(eq(schema.posts.reviewId, id)).all() as any[]).map((p) => [p.id, p.url as string]))
     const findings: PostFinding[] = checked.map((f) => {
       const rc = latestRc.get(f.id)
       return {
         fid: f.fid, severity: f.severity as any, title: f.title, location: f.location,
         problem: f.problem, detail: f.detail, fix: f.fix, notes: f.notes, introducedByPr: f.introducedByPr,
+        postedUrl: f.postedPostId ? postUrls.get(f.postedPostId) || '' : null,
         recheck: rc ? { status: rc.status, stance: rc.stance, text: rc.text } : null,
       }
     })
@@ -88,7 +110,7 @@ export default defineEventHandler(async (event) => {
         model: rc.translateModel,
         effort: rc.translateEffort,
         codexServiceTier: rc.codexServiceTier || '',
-        f: findings.map((f) => [f.fid, f.severity, f.title, f.problem, f.detail, f.fix, f.notes, f.location, f.introducedByPr, f.recheck?.status || '', f.recheck?.text || '']),
+        f: findings.map((f) => [f.fid, f.severity, f.title, f.problem, f.detail, f.fix, f.notes, f.location, f.introducedByPr, f.recheck?.status || '', f.recheck?.text || '', f.postedUrl ?? '']),
       }))
       .digest('hex')
 
@@ -118,18 +140,22 @@ export default defineEventHandler(async (event) => {
         .run()
     }
 
-    if (dryRun) return { dryRun: true, assembled, cached: usedCache }
+    if (dryRun) return { dryRun: true, assembled, cached: usedCache, head }
 
     // The user's acceptance covers the preview they saw: a publish that re-assembled is checked again.
     const hold = languageHold(assembled.warnings, acceptLangWarnings && usedCache)
     if (hold) throw createError({ statusCode: 422, statusMessage: hold })
 
-    // Every checked item was filtered out by its recheck status (reply-only with no response / retracted) → nothing left to post, don't post an empty review
+    // Every checked item was filtered out by its recheck status (reply-only with no response / retracted / already posted and still open) → nothing left to post, don't post an empty review
     if (!assembled.comments.length && !String(assembled.body || '').trim()) {
-      throw createError({ statusCode: 400, statusMessage: '勾选的 finding 都按复审状态跳过了（仅回复未写回应 note / 已撤回），没有可发内容' })
+      throw createError({ statusCode: 400, statusMessage: '勾选的 finding 都按复审状态跳过了（仅回复未写回应 note / 已撤回 / 已发过仍未处理），没有可发内容' })
     }
 
-    const headSha = review.headSha || ''
+    // Translating can take a minute: a push in that window is caught by reading the head again right before posting.
+    if (!usedCache) { head = await readHead(); refuseStale(head) }
+    // Posting anyway anchors the comments on the PR's current head: the line mapping above used its diff, and after a
+    // force-push the reviewed commit is no longer part of the PR.
+    const headSha = (ignoreHeadMove && head.current) || review.headSha || ''
     const { url } = await postReview({ repo: project.repo, prNumber: review.prNumber, headSha, assembled })
 
     const now = new Date().toISOString()
@@ -149,6 +175,9 @@ export default defineEventHandler(async (event) => {
       .where(eq(schema.reviews.id, id))
       .run()
     d.insert(schema.events).values({ id: nanoid(), reviewId: id, ts: now, kind: 'posted', message: url }).run()
+    // A human posted what automation held back: automatic posting may resume for this PR.
+    d.update(schema.prAutomation).set({ postHeld: false, updatedAt: now })
+      .where(and(eq(schema.prAutomation.projectId, review.projectId), eq(schema.prAutomation.prNumber, review.prNumber), eq(schema.prAutomation.postHeld, true))).run()
 
     return { dryRun: false, url, mode: assembled.mode }
   } catch (e) {
