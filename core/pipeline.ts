@@ -15,7 +15,7 @@ import { reviewAborts } from './agent/reviewAborts'
 import { failedJobUsage, usageOfError } from './agent/claudeRun'
 import { projectDirNameFor } from './host/options'
 import { mergeUsage } from './agent/usage'
-import { classifyFindings, runScopeReview, withFailedStages, type FailedStage, type StageRunner } from './review/scope'
+import { classifyFindings, runScopeReview, scopeEffort, withFailedStages, type FailedStage, type StageRunner } from './review/scope'
 import type { FindingRow, RawFinding } from './review/assemble'
 import { contextDocPath } from './review/context'
 import { existsSync } from 'node:fs'
@@ -97,13 +97,16 @@ function stageTotal(usages: Array<ProviderUsage | null>, t0: number): ProviderUs
   return u ? { ...u, durationMs: Date.now() - t0 } : null
 }
 
+// The effort a fresh review's own runs row records: the Claude pipeline's stages run at scopeEffort.
+export const reviewRunEffort = (provider: ReviewProvider | undefined, effort: string): string => (provider === 'codex' ? effort : scopeEffort(effort))
+
 // One runs row per scope-review stage, with its usage recorded even when the stage fails.
 function stageRunner(ctx: ReviewJobCtx, review: any, workspacePath: string, abort: AbortController, usages: Array<ProviderUsage | null>): StageRunner {
   const { db, schema, reviewId } = ctx
   return async (subkind, fn) => {
     const sid = createRun(db, schema, {
       kind: 'review', subkind, provider: 'claude', projectId: ctx.projectId ?? review?.projectId ?? null, reviewId, workspaceType: 'pr_worktree', workspacePath,
-      prNumber: ctx.prNumber, branch: ctx.branch, model: ctx.model, effort: ctx.effort, lang: ctx.lang ?? null, title: review?.title ?? null,
+      prNumber: ctx.prNumber, branch: ctx.branch, model: ctx.model, effort: scopeEffort(ctx.effort), lang: ctx.lang ?? null, title: review?.title ?? null,
     })
     try {
       const r = await fn()
@@ -178,7 +181,7 @@ async function runReviewJob(ctx: ReviewJobCtx) {
     runId = createRun(db, schema, {
       kind: 'review', subkind: 'review', provider: ctx.provider === 'codex' ? 'codex' : 'claude',
       projectId: ctx.projectId ?? review?.projectId ?? null, reviewId, workspaceType: 'pr_worktree', workspacePath: wt.path,
-      prNumber: ctx.prNumber, branch: ctx.branch, model: ctx.model, effort: ctx.effort, codexServiceTier: ctx.codexServiceTier,
+      prNumber: ctx.prNumber, branch: ctx.branch, model: ctx.model, effort: reviewRunEffort(ctx.provider, ctx.effort), codexServiceTier: ctx.codexServiceTier,
       skillId, skillVersionId, lang: ctx.lang ?? null, title: review?.title ?? null,
     })
     db.update(schema.reviews).set({ lastRunId: runId, skillVersionId, updatedAt: now() }).where(eq(schema.reviews.id, reviewId)).run()

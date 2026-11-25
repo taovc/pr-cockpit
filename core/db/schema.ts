@@ -449,6 +449,7 @@ export const runs = sqliteTable('runs', {
   claudeSessionId: text('claude_session_id'),
   codexThreadId: text('codex_thread_id'),
   cliVersion: text('cli_version'), // Claude Code CLI version (review family)
+  modelActual: text('model_actual'), // the model the CLI announced in system/init (an alias resolved); null before it was recorded
   reviewRules: text('review_rules'), // JSON [{ path, sha }] of the REVIEW.md files this run read (content in review_rule_files)
   // Session host state: the permission mode the session runs in, the dangerous-command switch, network access (Codex) and per-run "always allow" rules (JSON).
   permissionMode: text('permission_mode'),

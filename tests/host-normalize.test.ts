@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { normalize, diffCumulativeUsage } from '../core/host/normalize'
+import { renameUsageModels, usageFromClaudeResult } from '../core/agent/usage'
 import { PushQueue } from '../core/host/queue'
 import { eventMessage, persistedEvent } from '../core/host/types'
 
@@ -55,6 +56,25 @@ const t3 = { ...t1, costUsd: 0.05, models: [{ ...t1.models[0]!, inputTokens: 20,
 const d3 = diffCumulativeUsage(t2, t3)!
 assert.ok(Math.abs(d3.costUsd! - 0.05) < 1e-9)
 assert.equal(d3.models[0]!.inputTokens, 20)
+
+// canonicalModel can be absent on one result (e.g. right after a resume) and present on the next: the turn is
+// differenced on the raw key, then recorded under the canonical id
+const resultOf = (mu: Record<string, any>, cost: number) => normalize({ type: 'result', subtype: 'success', is_error: false, result: '', total_cost_usd: cost, duration_ms: 1, num_turns: 1, session_id: 'S1', modelUsage: mu })[0] as any
+const r1 = resultOf({ 'claude-opus-5-5-20261001': { inputTokens: 1000, outputTokens: 100, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 1 } }, 1)
+const r2 = resultOf({ 'claude-opus-5-5-20261001': { inputTokens: 1200, outputTokens: 130, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, costUSD: 1.3, canonicalModel: 'claude-opus-5-5' } }, 1.3)
+assert.equal(r1.modelNames, undefined)
+assert.deepEqual(r2.modelNames, { 'claude-opus-5-5-20261001': 'claude-opus-5-5' })
+const turn2 = renameUsageModels(diffCumulativeUsage(r1.usage, r2.usage), r2.modelNames ?? {})!
+assert.equal(turn2.models.length, 1)
+assert.equal(turn2.models[0]!.model, 'claude-opus-5-5')
+assert.equal(turn2.models[0]!.inputTokens, 200, 'only this turn, not the whole lifetime again')
+assert.ok(Math.abs(turn2.models[0]!.costUsd! - 0.3) < 1e-9)
+const merged = renameUsageModels({ models: [{ ...t1.models[0]!, model: 'a' }, { ...t1.models[0]!, model: 'b' }], costUsd: 0.2, costSource: 'reported' }, { a: 'c', b: 'c' })!
+assert.equal(merged.models.length, 1)
+assert.equal(merged.models[0]!.inputTokens, 200)
+assert.ok(Math.abs(merged.models[0]!.costUsd! - 0.2) < 1e-9)
+// a one-shot run (the review family) still records the canonical id directly
+assert.equal(usageFromClaudeResult({ type: 'result', modelUsage: { 'x[1m]': { inputTokens: 1, canonicalModel: 'claude-x' } } })!.models[0]!.model, 'claude-x')
 
 // PushQueue: push before and after a waiting consumer; close ends iteration
 const q = new PushQueue<number>()

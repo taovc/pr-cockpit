@@ -20,11 +20,13 @@ let warnedVersion: string | null = null
 export async function consumeClaudeRun(stream: AsyncIterable<any>, opts: { model?: string; onToolUse?: (block: any) => void; onResult?: (msg: any) => void; onMessage?: (msg: any) => void }): Promise<ClaudeRunOutput> {
   const out: ClaudeRunOutput = { text: '', structured: null, usage: null, costUsd: 0, subtype: null }
   let cliVersion: string | null = null
+  let modelActual: string | null = null
   let failure: string | null = null
   let forked = false
   try {
     for await (const msg of stream) {
       cliVersion = claudeCliVersionOf(msg) ?? cliVersion
+      if (msg.type === 'system' && msg.subtype === 'init' && typeof msg.model === 'string' && msg.model) modelActual = msg.model
       if (msg.type === 'system' && msg.subtype === 'task_started') forked = true
       opts.onMessage?.(msg)
       if (msg.type === 'assistant') {
@@ -38,6 +40,7 @@ export async function consumeClaudeRun(stream: AsyncIterable<any>, opts: { model
       } else if (msg.type === 'result') {
         if (typeof msg.total_cost_usd === 'number') out.costUsd += msg.total_cost_usd
         out.usage = usageFromClaudeResult(msg, opts.model, cliVersion)
+        if (out.usage && modelActual) out.usage.modelActual = modelActual
         out.subtype = typeof msg.subtype === 'string' ? msg.subtype : null
         out.structured = msg.structured_output ?? null
         failure = failure ?? claudeResultFailure(msg, { forked }) // a failed turn stays failed in a multi-turn run

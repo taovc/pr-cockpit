@@ -322,7 +322,7 @@
     "useEnvDefault": "Use the default model from .env",
     "inheritEnvDefault": "Inherits .env default",
     "effortLabel": "Review effort",
-    "effortNone": "(unset, model default)",
+    "effortNone": "(unset: the model's own default, medium for the Claude 5.x models; Claude review stages use high)",
     "noEffortSupport": "This model does not support effort settings",
     "refreshCodexModels": "Refresh model catalog",
     "refreshingCodexModels": "Refreshing…",

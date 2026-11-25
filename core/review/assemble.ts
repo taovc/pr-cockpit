@@ -1,10 +1,11 @@
-import type { EngineFinding } from './engine'
+import type { EngineFinding, EngineLabel } from './engine'
 import type { TierResult } from './agents'
 
 // Rules applied in code after the tier pass: nothing is dropped, refuted findings are never tiered.
 
 export type RawSource = 'engine' | 'context' | 'recheck'
-export type RawFinding = { id: string; source: RawSource; file: string; line: number | null; title: string; scenario: string; preExisting: boolean }
+// label / suggestedFix: what the engine's report said; the label is a hint for the tier pass only.
+export type RawFinding = { id: string; source: RawSource; file: string; line: number | null; title: string; scenario: string; preExisting: boolean; label?: EngineLabel | null; suggestedFix?: string }
 export type Tier = 'must' | 'decide' | 'later' | 'edge'
 export type VerdictValue = 'confirmed' | 'refuted' | 'unsure'
 
@@ -24,7 +25,10 @@ export type FindingRow = {
 }
 
 export function fromEngine(list: EngineFinding[]): RawFinding[] {
-  return list.map((f, i) => ({ id: `E${i + 1}`, source: 'engine', file: f.file, line: f.line ?? null, title: f.summary, scenario: f.failure_scenario, preExisting: false }))
+  return list.map((f, i) => ({
+    id: `E${i + 1}`, source: 'engine', file: f.file, line: f.line ?? null, title: f.summary, scenario: f.failure_scenario,
+    preExisting: f.label === 'pre-existing', label: f.label ?? null, suggestedFix: f.suggested_fix || '',
+  }))
 }
 
 export function fromContext(list: Array<{ file: string; line: number | null; title: string; consequence: string; preExisting: boolean }>): RawFinding[] {
@@ -49,7 +53,7 @@ export function assembleFindings(raw: RawFinding[], verdicts: Map<string, { verd
     const sources = new Set(ids.map((id) => byId.get(id)!.source))
     rows.push({
       severity: item.severity, title: item.title, location: item.location || locationOf(byId.get(ids[0]!)!),
-      problem: item.problem || null, detail: item.detail || null, fix: item.fix || null,
+      problem: item.problem || null, detail: item.detail || null, fix: item.fix || ids.map((id) => byId.get(id)!.suggestedFix).find(Boolean) || null,
       introducedByPr: !item.preExisting, tier: best.verdict === 'refuted' ? null : (item.tier ?? 'later'), evidence: item.evidence,
       source: sources.size > 1 ? 'both' : [...sources][0]!, verifyStatus: best.verdict, verifyNote: best.reason || null,
     })
@@ -59,7 +63,7 @@ export function assembleFindings(raw: RawFinding[], verdicts: Map<string, { verd
     if (used.has(f.id)) continue
     const v = verdictOf(f.id)
     rows.push({
-      severity: 'Medium', title: f.title, location: locationOf(f), problem: f.scenario || null, detail: null, fix: null,
+      severity: 'Medium', title: f.title, location: locationOf(f), problem: f.scenario || null, detail: null, fix: f.suggestedFix || null,
       introducedByPr: !f.preExisting, tier: v.verdict === 'refuted' ? null : 'later', evidence: 'inferred', source: f.source,
       verifyStatus: v.verdict, verifyNote: v.reason || null,
     })

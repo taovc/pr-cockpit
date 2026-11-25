@@ -72,8 +72,13 @@ const CHECK_SYSTEM = `You check claims about code, one at a time, independently.
 - "unsure": you cannot decide from the code; say what is missing.
 Only correctness matters. "It existed before this PR", "low impact", "rare", "style", "out of scope" are NOT reasons to refute — those claims are confirmed if true. Never edit files or run git/gh write commands.`
 
+// The claims as the checker sees them: location, claim and scenario only.
+export function checkInput(findings: RawFinding[]): string {
+  return findings.map((f) => `- ${f.id} at ${f.file}${f.line ? `:${f.line}` : ''}\n  claim: ${f.title}${f.scenario ? `\n  failure scenario: ${f.scenario}` : ''}`).join('\n')
+}
+
 export async function runCheck(o: AgentBase & { baseBranch: string; findings: RawFinding[] }): Promise<Out<z.infer<typeof CheckResultSchema>>> {
-  const list = o.findings.map((f) => `- ${f.id} at ${f.file}${f.line ? `:${f.line}` : ''}\n  claim: ${f.title}${f.scenario ? `\n  failure scenario: ${f.scenario}` : ''}`).join('\n')
+  const list = checkInput(o.findings)
   return runAgent({
     ...o, system: CHECK_SYSTEM, schema: CheckResultSchema, maxTurns: 60, baseRules: false,
     prompt: `The current directory is the PR branch; \`git diff origin/${o.baseBranch}...HEAD\` shows the change.\n\nClaims:\n${list}\n\nReturn one verdict per id through the structured output (reasons in English).`,
@@ -109,14 +114,20 @@ Tier by value to this PR (not by correctness — that was checked already):
 - "edge": only rare environment conditions (browser-specific messages, unusual offline or DNS shapes, impossible inputs) and purely defensive hardening. A race or timing issue a user can trigger by normal use (acting twice quickly) is NOT an edge case.
 - "decide": a product or trade-off decision the change embodies that the reviewer must make; the title is the question, the detail states the two options and the cost of each.
 - null: only for findings whose check verdict is "refuted".
+- Issues a CI check already covers (lint, types, formatting) go to "later" or "edge"; they are never dropped.
 Severity (High/Medium/Low) is the impact if it ships, judged separately from the tier: a pre-existing Medium can still be "must".
 Evidence: "ci" only when a CI check in the context file shows the failure; otherwise "inferred".
+An "engine label" (important / pre-existing / nit) is how the bug finder tagged its finding: a hint for tier and severity, not a rule.
 REVIEW.md rules and its not-report list override these defaults.
 Writing: title = the problem in one short sentence (≤ 40 characters in Chinese, ≤ 12 words otherwise); problem = the consequence in one short sentence; detail = the failure scenario and evidence; fix = the direction of a fix in one or two sentences. location = path:line. No tables, no long paragraphs. Never cite the internal ids (E1, C2…) anywhere in the text; they belong only in the ids field. Never quote project memory or REVIEW.md text: findings may be posted publicly; describe the problem in terms of the code.
 Also return: conclusion — can it merge, and what blocks it, in one sentence; notDone — the checks nobody ran (tests not executed, UI not opened, the other repo not read…), one sentence; reviewMdSuggestion — a rule or known false positive worth adding to REVIEW.md for next time, or empty.`
 
+export function tierInput(findings: Array<RawFinding & { verdict: string; verdictReason: string }>): string {
+  return findings.map((f) => `- ${f.id} (${f.source}${f.preExisting ? ', pre-existing' : ''}${f.label ? `; engine label: ${f.label}` : ''}; check: ${f.verdict}${f.verdictReason ? ` — ${f.verdictReason}` : ''}) ${f.file}${f.line ? `:${f.line}` : ''}\n  ${f.title}${f.scenario ? `\n  scenario: ${f.scenario}` : ''}`).join('\n')
+}
+
 export async function runTier(o: AgentBase & { baseBranch: string; lang?: string; contextPath?: string | null; findings: Array<RawFinding & { verdict: string; verdictReason: string }> }): Promise<Out<TierResult>> {
-  const list = o.findings.map((f) => `- ${f.id} (${f.source}${f.preExisting ? ', pre-existing' : ''}; check: ${f.verdict}${f.verdictReason ? ` — ${f.verdictReason}` : ''}) ${f.file}${f.line ? `:${f.line}` : ''}\n  ${f.title}${f.scenario ? `\n  scenario: ${f.scenario}` : ''}`).join('\n')
+  const list = tierInput(o.findings)
   return runAgent({
     ...o, system: TIER_SYSTEM, schema: TierResultSchema, maxTurns: 20, baseBranch: o.baseBranch,
     prompt: `${o.contextPath ? `The review context (requirement, CI checks, REVIEW.md, the reviewer's request) is in ${o.contextPath} — read it first.\n\n` : ''}Checked findings:\n${list || '(none)'}\n\nReturn the report through the structured output. ${outputLangClause(resolveLang(o.lang))}`,

@@ -73,6 +73,11 @@ assert.equal(isForbiddenRemoteOrGitMutation('git merge origin/dev', { allowLocal
 assert.equal(isForbiddenRemoteOrGitMutation('git branch fix-conflict', { allowLocalGitMutation: true }), false)
 assert.equal(isForbiddenRemoteOrGitMutation('git push origin HEAD', { allowLocalGitMutation: true }), true)
 assert.equal(isForbiddenRemoteOrGitMutation('gh pr comment 1 --body ok', { allowLocalGitMutation: true }), true)
+assert.equal(isForbiddenRemoteOrGitMutation('gh api repos/o/r/issues/1/comments -f body=x'), true, 'implicit POST')
+assert.equal(isForbiddenRemoteOrGitMutation('gh api repos/o/r/issues --input body.json'), true, 'implicit POST')
+assert.equal(isForbiddenRemoteOrGitMutation('gh api -X GET search/issues -f q=x'), false)
+assert.equal(isForbiddenRemoteOrGitMutation('gh api repos/o/r/pulls/1'), false)
+assert.equal(isForbiddenRemoteOrGitMutation('gh issue close 1'), true)
 const featurePushWithChecks = "/bin/zsh -lc 'git status --short --branch && git log --oneline --decorate origin/dev..HEAD && git diff --stat origin/dev...HEAD && git push -u origin HEAD'"
 const featureCommitWithChecks = "/bin/zsh -lc 'git add apps/web/i18n/en.json apps/web/i18n/fr.json && git diff --cached --check && git diff --cached --stat && git commit -m \"fix(web): deduplicate expired subscription toasts\"'"
 const featureRebaseWithChecks = "/bin/zsh -lc 'git rebase origin/dev && git status --short --branch && git rev-list --left-right --count origin/dev...HEAD'"
@@ -82,7 +87,14 @@ assert.equal(shouldBlockCodexCommand(featureRebaseWithChecks, { scope: 'feature'
 assert.equal(shouldBlockCodexCommand(featurePushWithChecks, { scope: 'feature', allowDanger: true }), false)
 assert.equal(shouldBlockCodexCommand(featureCommitWithChecks, { scope: 'feature', allowDanger: true }), false)
 assert.equal(shouldBlockCodexCommand('git push origin main', { scope: 'feature', allowDanger: true }), false)
-assert.equal(shouldBlockCodexCommand('gh pr merge 123', { scope: 'feature', allowDanger: true }), false)
+// Approving or merging a PR is never allowed from a worktree session, even with dangerous commands enabled.
+assert.equal(shouldBlockCodexCommand('gh pr merge 123', { scope: 'feature', allowDanger: true }), true)
+assert.equal(shouldBlockCodexCommand('gh -R o/r pr merge 1 --admin --squash', { scope: 'fix', allowDanger: true }), true)
+assert.equal(shouldBlockCodexCommand('gh pr review 1 -a', { scope: 'fix', allowDanger: true }), true)
+assert.equal(shouldBlockCodexCommand("/bin/zsh -lc 'git status && gh pr merge 1'", { scope: 'feature', allowDanger: true }), true)
+assert.equal(shouldBlockCodexCommand('gh pr merge 1', { scope: 'global', allowDanger: true }), false)
+assert.equal(shouldBlockCodexCommand('gh pr merge 1', { scope: 'global' }), false)
+assert.equal(shouldBlockCodexCommand('gh pr comment 1 -b ok', { scope: 'fix', allowDanger: true }), false)
 assert.equal(shouldBlockCodexCommand('git push -u origin HEAD', { scope: 'fix', allowDanger: true }), false)
 assert.equal(shouldBlockCodexCommand('gh api repos/owner/repo/issues/1 --method DELETE', { scope: 'readonly', allowDanger: true }), false)
 

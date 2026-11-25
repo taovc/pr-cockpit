@@ -94,6 +94,28 @@ try {
   const r7b = await codexHost.send('s1', 'run-command git commit -m x')
   assert.equal(r7b.isError, false)
   assert.equal(r7b.text, 'ran: accept')
+  // …but approving or merging a PR from a worktree session is declined before it runs even with the danger switch on
+  // (full access in a worktree session submits every command, and only the approve/merge rule declines; no card)
+  const c7c = collect()
+  const r7c = await codexHost.send('s1', 'run-command gh pr merge 1 --squash', { onEvent: c7c.onEvent })
+  assert.equal(r7c.text, 'ran: decline')
+  assert.equal(codexHost.pendingPrompts('s1').length, 0)
+  assert.ok(c7c.events.some((e) => e.t === 'permission_denied' && /done by the human in PR Cockpit/.test(e.message)))
+  // an MCP merge has no approval round trip: the turn is stopped and fails as soon as the call shows up
+  const r7m = await codexHost.send('s1', 'mcp-call github merge_pull_request {"pullNumber":1}')
+  assert.equal(r7m.isError, true)
+  assert.match(r7m.error || '', /done by the human in PR Cockpit/)
+  const r7n = await codexHost.send('s1', 'mcp-call github get_pull_request {"pullNumber":1}')
+  assert.equal(r7n.isError, false)
+  assert.equal(r7n.text, 'mcp done')
+  // with approvals on, the merge is declined before it runs, without a card
+  codexHost.setAllowDanger('s1', false)
+  await codexHost.ensure({ runId: 's1', kind: 'session', cwd, permissionMode: 'default', guardScope: 'feature' })
+  const c7d = collect()
+  const r7d = await codexHost.send('s1', 'run-command gh pr review 1 --approve', { onEvent: c7d.onEvent })
+  assert.equal(r7d.text, 'ran: decline')
+  assert.equal(codexHost.pendingPrompts('s1').length, 0)
+  assert.ok(c7d.events.some((e) => e.t === 'permission_denied' && /done by the human in PR Cockpit/.test(e.message)))
 
   // 8. review one-shot: every command is decided before it runs — git status accepted, git push declined
   const tools: string[] = []
@@ -130,6 +152,18 @@ try {
   assert.equal(sessionPolicy({ cwd, permissionMode: 'plan' }).sandbox.type, 'readOnly')
   assert.equal(sessionPolicy({ cwd, permissionMode: 'bypassPermissions' }).approval, 'never')
   assert.equal(sessionPolicy({ cwd, permissionMode: 'default', allowDanger: true }).sandbox.type, 'dangerFullAccess')
+  // full access in a worktree session submits every command so an approve/merge is declined before it runs
+  for (const mode of ['default', 'acceptEdits', 'bypassPermissions'] as const) {
+    for (const guardScope of ['fix', 'feature'] as const) {
+      const p = sessionPolicy({ cwd, permissionMode: mode, allowDanger: true, guardScope })
+      assert.equal(p.approval, 'untrusted', `${mode} ${guardScope}`)
+      assert.equal(p.screenOnly, true)
+    }
+  }
+  assert.equal(sessionPolicy({ cwd, permissionMode: 'bypassPermissions', allowDanger: true, guardScope: 'global' }).approval, 'never')
+  assert.equal(sessionPolicy({ cwd, permissionMode: 'default', allowDanger: true, guardScope: 'global' }).screenOnly, false)
+  assert.equal(sessionPolicy({ cwd, permissionMode: 'bypassPermissions', guardScope: 'fix' }).approval, 'never')
+  assert.equal(sessionPolicy({ cwd, permissionMode: 'plan', allowDanger: true, guardScope: 'fix' }).approval, 'on-request')
   const rp = reviewPolicy({ allowNetwork: true })
   assert.equal(rp.autoDecide!('gh pr view 1'), 'accept')
   assert.equal(rp.autoDecide!('gh pr comment 1 --body x'), 'decline')

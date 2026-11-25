@@ -48,10 +48,11 @@ export function runsBySubkind(db: any, f: MetricsFilter = {}) {
 }
 
 // Review-family runs by model × effort: count, cost avg, duration p50/p95 (percentiles computed in JS — SQLite has none).
+// The model is the one the CLI announced when recorded, so an alias groups under what it resolved to.
 export function reviewRunsByModel(db: any, f: MetricsFilter = {}) {
   const w = where(f, { project: 'project_id', ts: 'created_at' })
   const rows = all<{ provider: string; model: string | null; effort: string | null; cost_usd: number | null; duration_ms: number; status: string }>(db, `
-    SELECT provider, model, effort, cost_usd, duration_ms, status
+    SELECT provider, COALESCE(model_actual, model) AS model, effort, cost_usd, duration_ms, status
     FROM runs ${w.clause ? w.clause + ' AND' : 'WHERE'} kind = 'review' AND subkind IN ('review', 'guided', 'recheck')`, w.args)
   const groups = new Map<string, { provider: string; model: string | null; effort: string | null; runs: number; errors: number; costs: number[]; durations: number[] }>()
   for (const r of rows) {

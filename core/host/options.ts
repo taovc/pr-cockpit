@@ -30,7 +30,7 @@ export function buildOptions(spec: RunSpec, hooks: { canUseTool: CanUseTool; dan
     // chat's thinking cards permanently empty (and therefore never rendered).
     thinking: { type: 'adaptive', display: 'summarized' },
     canUseTool: hooks.canUseTool,
-    hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [hooks.dangerHook] }] },
+    hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [hooks.dangerHook] }, { matcher: 'mcp__.*', hooks: [hooks.dangerHook] }] },
     toolConfig: { askUserQuestion: { previewFormat: 'html' } },
     ...(spec.kind === 'session' ? { enableFileCheckpointing: true } : {}), // per-message file snapshots → "rewind to here" in the UI
     env,
