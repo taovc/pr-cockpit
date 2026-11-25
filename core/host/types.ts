@@ -47,10 +47,10 @@ export type RunSpec = {
   systemAppend?: string
   chrome?: boolean // pass --chrome so the Claude in Chrome MCP connects
   projectDirName?: string // CLAUDE_CODE_PROJECT_DIR_NAME (only honoured with CLAUDE_CONFIG_DIR set)
+  guardScope?: 'fix' | 'feature' | 'global' // session workspace kind for the GitHub write guards (Claude hook, Codex post-execution guard)
   // ── Codex-only knobs (ignored by the Claude host) ──
   codexServiceTier?: string | null
   ultracode?: boolean // raise the reasoning effort + prepend the deep-work instructions
-  guardScope?: 'fix' | 'feature' | 'global' // post-execution git/GitHub mutation guard for unattended (bypass) turns
   allowNetwork?: boolean // review kind: let gh read PR metadata (writes are still declined before they run)
   outputSchema?: unknown // review kind: JSON Schema constraining the final message
   db?: any

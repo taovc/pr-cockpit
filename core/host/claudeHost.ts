@@ -121,7 +121,7 @@ class ClaudeHost {
       },
       onSettled: (promptId) => { const t = live.promptTimers?.get(promptId); if (t) clearTimeout(t); live.promptTimers?.delete(promptId) },
     })
-    const dangerHook = makeDangerHook(() => !!live.spec.allowDanger)
+    const dangerHook = makeDangerHook(() => !!live.spec.allowDanger, () => live.spec.guardScope)
     const q = query({ prompt: input, options: buildOptions(spec, { canUseTool, dangerHook, abort, stderr: (d) => { live.stderr = (live.stderr + d).slice(-4000) } }) })
     live.q = q
     const run = live as LiveRun
